@@ -1,0 +1,124 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Google.Apis.Auth.OAuth2;
+using Microsoft.Extensions.Options;
+
+namespace ZenlessLeague.Api.Features.Storage;
+
+public class FirebaseStorageException(string message) : Exception(message);
+
+public interface IFirebaseStorageClient
+{
+    // Direct port of functions/utils/uploadImage.js: decodes a data-url base64 image, enforces
+    // the 3MB cap, deletes any previously uploaded file(s) under the same prefix (so re-uploading
+    // with a different extension doesn't leave orphans), uploads, and returns the public URL.
+    Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default);
+}
+
+// REST client for the Firebase/Google Cloud Storage JSON API, using the same GoogleCredential
+// bearer-token pattern the old FirebasePlayerRepository used for RTDB.
+//
+// NOTE: written directly from the legacy source but not yet exercised against a real Storage
+// bucket (no service account/bucket configured in this environment) — verify against a real
+// bucket before relying on this for registration/match screenshots.
+public partial class FirebaseStorageClient(HttpClient httpClient, GoogleCredential credential, IOptions<FirebaseStorageOptions> options) : IFirebaseStorageClient
+{
+    private const long MaxImageSizeBytes = 3 * 1024 * 1024;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [GeneratedRegex(@"^data:(image/\w+);base64,")]
+    private static partial Regex DataUrlPattern();
+
+    public async Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default)
+    {
+        var match = DataUrlPattern().Match(base64Image);
+        var contentType = match.Success ? match.Groups[1].Value : "image/jpeg";
+        var ext = contentType.Split('/')[1];
+
+        var base64Data = DataUrlPattern().Replace(base64Image, string.Empty);
+        byte[] buffer;
+        try
+        {
+            buffer = Convert.FromBase64String(base64Data);
+        }
+        catch (FormatException)
+        {
+            throw new FirebaseStorageException("Invalid base64 image data.");
+        }
+
+        if (buffer.Length > MaxImageSizeBytes)
+        {
+            throw new FirebaseStorageException("File too large, max 3MB");
+        }
+
+        var bucket = options.Value.StorageBucket ?? throw new InvalidOperationException("Firebase:StorageBucket is not configured.");
+        var filePath = $"{pathPrefix}.{ext}";
+
+        await DeleteByPrefixAsync(bucket, $"{pathPrefix}.", ct);
+        await UploadAsync(bucket, filePath, buffer, contentType, ct);
+
+        return $"https://storage.googleapis.com/{bucket}/{filePath}";
+    }
+
+    private async Task DeleteByPrefixAsync(string bucket, string prefix, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(ct);
+
+        using var listRequest = new HttpRequestMessage(HttpMethod.Get,
+            $"https://storage.googleapis.com/storage/v1/b/{Uri.EscapeDataString(bucket)}/o?prefix={Uri.EscapeDataString(prefix)}");
+        listRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var listResponse = await httpClient.SendAsync(listRequest, ct);
+        listResponse.EnsureSuccessStatusCode();
+
+        var listing = await listResponse.Content.ReadFromJsonAsync<GcsObjectList>(JsonOptions, ct);
+        if (listing?.Items is null)
+        {
+            return;
+        }
+
+        foreach (var item in listing.Items)
+        {
+            using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete,
+                $"https://storage.googleapis.com/storage/v1/b/{Uri.EscapeDataString(bucket)}/o/{Uri.EscapeDataString(item.Name)}");
+            deleteRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var deleteResponse = await httpClient.SendAsync(deleteRequest, ct);
+            if (deleteResponse.StatusCode != HttpStatusCode.NotFound)
+            {
+                deleteResponse.EnsureSuccessStatusCode();
+            }
+        }
+    }
+
+    private async Task UploadAsync(string bucket, string filePath, byte[] buffer, string contentType, CancellationToken ct)
+    {
+        var token = await GetAccessTokenAsync(ct);
+
+        // predefinedAcl=publicRead folds legacy's separate file.save() + file.makePublic() calls
+        // into the single insert request the JSON API supports.
+        var url = $"https://storage.googleapis.com/upload/storage/v1/b/{Uri.EscapeDataString(bucket)}/o" +
+                  $"?uploadType=media&name={Uri.EscapeDataString(filePath)}&predefinedAcl=publicRead";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Content = new ByteArrayContent(buffer);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+
+        using var response = await httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new FirebaseStorageException($"Firebase Storage upload failed: {body}");
+        }
+    }
+
+    private async Task<string> GetAccessTokenAsync(CancellationToken ct) =>
+        await credential.UnderlyingCredential.GetAccessTokenForRequestAsync(cancellationToken: ct);
+
+    private record GcsObjectList(List<GcsObject>? Items);
+    private record GcsObject(string Name);
+}

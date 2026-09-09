@@ -1,0 +1,333 @@
+using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Features.Storage;
+using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Features.Tournaments.Realtime;
+
+namespace ZenlessLeague.Api.Features.Tournaments;
+
+public interface ITournamentRegistrationService
+{
+    Task<TournamentRegistrationDto?> RegisterSoloAsync(Guid tournamentId, SoloRegistrationRequest request, CancellationToken ct = default);
+    Task<TournamentRegistrationDto?> RegisterTeamAsync(Guid tournamentId, TeamRegistrationRequest request, CancellationToken ct = default);
+    Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, CancellationToken ct = default);
+    Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default);
+
+    // Port of functions/admin/tournament/adminAddTournamentRegistration.js — force-registers a
+    // player, pre-approved, skipping the usual eligibility/window checks.
+    Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default);
+
+    // Port of functions/admin/tournament/approveRegistration.js.
+    Task<TournamentRegistrationDto?> SetApprovedAsync(Guid tournamentId, Guid registrationId, bool approved, CancellationToken ct = default);
+
+    // Port of functions/user/cancelTournamentRegistration.js. Returns null if the tournament
+    // doesn't exist (404), false if the caller has no registration to cancel (404), true on success.
+    Task<bool?> CancelAsync(Guid tournamentId, string callerPlayerId, CancellationToken ct = default);
+}
+
+/// <summary>Thrown for registration validation failures (wrong type, closed window, ineligible tier, missing fields) — maps to 400.</summary>
+public class TournamentValidationException(string message) : Exception(message);
+
+public class TournamentRegistrationService(
+    ITournamentRepository tournamentRepository,
+    ITeamRepository teamRepository,
+    IPlayerRepository playerRepository,
+    ITournamentRegistrationRepository registrationRepository,
+    IFirebaseStorageClient storageClient,
+    ITournamentNotifier notifier) : ITournamentRegistrationService
+{
+    public async Task<TournamentRegistrationDto?> RegisterSoloAsync(Guid tournamentId, SoloRegistrationRequest request, CancellationToken ct = default)
+    {
+        var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
+        if (tournament is null)
+        {
+            return null;
+        }
+
+        if (tournament.RegistrationType != TournamentRegistrationType.Solo)
+        {
+            throw new TournamentValidationException("This tournament requires a team registration.");
+        }
+
+        EnsureRegistrationOpen(tournament);
+
+        var playerSummary = await playerRepository.GetByIdAsync(request.PlayerId, ct)
+            ?? throw new TournamentValidationException($"Player '{request.PlayerId}' does not exist.");
+        EnsureTierEligible(tournament, playerSummary);
+
+        var registration = await registrationRepository.FindExistingAsync(tournamentId, request.PlayerId, null, ct);
+        var player = await playerRepository.GetEntityByIdAsync(request.PlayerId, ct)
+            ?? throw new TournamentValidationException($"Player '{request.PlayerId}' does not exist.");
+
+        var details = await BuildDetailsAsync(
+            tournamentId, request.PlayerId, request.Details, registration?.Player1Details, player.LastRegistrationCache, ct);
+
+        if (registration is null)
+        {
+            registration = new TournamentRegistration
+            {
+                Id = Guid.NewGuid(),
+                TournamentId = tournamentId,
+                Type = TournamentRegistrationType.Solo,
+                PlayerId = request.PlayerId,
+                Player1Details = details,
+                RegisteredAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            await registrationRepository.CreateAsync(registration, ct);
+        }
+        else
+        {
+            registration.Player1Details = details;
+            registration.UpdatedAt = DateTimeOffset.UtcNow;
+            await registrationRepository.SaveChangesAsync(ct);
+        }
+
+        // Port of applyForTournament.js's `players/{uid}/lastRegistration` update — lets the
+        // player skip re-uploading screenshots next time they register for a different tournament.
+        player.LastRegistrationCache = new LastRegistrationCache
+        {
+            GameUid = details.GameUid,
+            PrizeAsMoney = details.PrizeAsMoney,
+            PrizeUid = details.PrizeUid,
+            DarteNickname = details.DarteNickname,
+            DartePresetName = details.DartePresetName,
+            RosterName = details.RosterName,
+            RosterScreenshotUrl = details.RosterScreenshotUrl,
+            HoyolabScreenshotUrl = details.HoyolabScreenshotUrl,
+        };
+        await playerRepository.SaveChangesAsync(ct);
+        await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+
+        return ToDto(registration);
+    }
+
+    public async Task<TournamentRegistrationDto?> RegisterTeamAsync(Guid tournamentId, TeamRegistrationRequest request, CancellationToken ct = default)
+    {
+        var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
+        if (tournament is null)
+        {
+            return null;
+        }
+
+        if (tournament.RegistrationType != TournamentRegistrationType.Team)
+        {
+            throw new TournamentValidationException("This tournament requires a solo registration.");
+        }
+
+        EnsureRegistrationOpen(tournament);
+
+        var team = await teamRepository.GetByIdAsync(request.TeamId, ct)
+            ?? throw new TournamentValidationException($"Team '{request.TeamId}' does not exist.");
+
+        var creator = await playerRepository.GetByIdAsync(team.CreatorPlayerId, ct)
+            ?? throw new TournamentValidationException($"Player '{team.CreatorPlayerId}' does not exist.");
+        var player2 = await playerRepository.GetByIdAsync(team.Player2PlayerId, ct)
+            ?? throw new TournamentValidationException($"Player '{team.Player2PlayerId}' does not exist.");
+        EnsureTierEligible(tournament, creator);
+        EnsureTierEligible(tournament, player2);
+
+        var registration = await registrationRepository.FindExistingAsync(tournamentId, null, request.TeamId, ct);
+
+        // Team registrations don't reuse a player's solo `lastRegistration` cache — only an
+        // existing registration on this same team/tournament pair can be reused from.
+        var player1Details = await BuildDetailsAsync(
+            tournamentId, team.CreatorPlayerId, request.Player1, registration?.Player1Details, null, ct);
+        var player2Details = await BuildDetailsAsync(
+            tournamentId, team.Player2PlayerId, request.Player2, registration?.Player2Details, null, ct);
+
+        if (registration is null)
+        {
+            registration = new TournamentRegistration
+            {
+                Id = Guid.NewGuid(),
+                TournamentId = tournamentId,
+                Type = TournamentRegistrationType.Team,
+                TeamId = request.TeamId,
+                Player1Details = player1Details,
+                Player2Details = player2Details,
+                RegisteredAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            await registrationRepository.CreateAsync(registration, ct);
+        }
+        else
+        {
+            registration.Player1Details = player1Details;
+            registration.Player2Details = player2Details;
+            registration.UpdatedAt = DateTimeOffset.UtcNow;
+            await registrationRepository.SaveChangesAsync(ct);
+        }
+
+        await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+        return ToDto(registration);
+    }
+
+    public async Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, CancellationToken ct = default) =>
+        (await registrationRepository.ListByTournamentAsync(tournamentId, ct)).Select(ToDto).ToList();
+
+    public async Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default)
+    {
+        var registration = await registrationRepository.GetByIdAsync(tournamentId, id, ct);
+        return registration is null ? null : ToDto(registration);
+    }
+
+    public async Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default)
+    {
+        var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
+        if (tournament is null)
+        {
+            return null;
+        }
+
+        if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+        {
+            throw new TournamentValidationException("Tournament has already started.");
+        }
+
+        var player = await playerRepository.GetByIdAsync(playerId, ct)
+            ?? throw new TournamentValidationException($"Player '{playerId}' does not exist.");
+
+        if (await registrationRepository.FindExistingAsync(tournamentId, playerId, null, ct) is not null)
+        {
+            throw new TournamentValidationException("Player is already registered.");
+        }
+
+        var registration = new TournamentRegistration
+        {
+            Id = Guid.NewGuid(),
+            TournamentId = tournamentId,
+            Type = TournamentRegistrationType.Solo,
+            PlayerId = playerId,
+            Player1Details = new PlayerRegistrationDetails
+            {
+                GameUid = string.Empty,
+                PrizeAsMoney = false,
+                PrizeUid = null,
+                DarteNickname = player.Name,
+                DartePresetName = string.Empty,
+                RosterName = string.Empty,
+            },
+            Approved = true,
+            RegisteredAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+
+        await registrationRepository.CreateAsync(registration, ct);
+        await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+        return ToDto(registration);
+    }
+
+    public async Task<TournamentRegistrationDto?> SetApprovedAsync(Guid tournamentId, Guid registrationId, bool approved, CancellationToken ct = default)
+    {
+        var registration = await registrationRepository.GetByIdAsync(tournamentId, registrationId, ct);
+        if (registration is null)
+        {
+            return null;
+        }
+
+        registration.Approved = approved;
+        registration.UpdatedAt = DateTimeOffset.UtcNow;
+        await registrationRepository.SaveChangesAsync(ct);
+        await notifier.RegistrationChangedAsync(tournamentId, registrationId, ct);
+        return ToDto(registration);
+    }
+
+    public async Task<bool?> CancelAsync(Guid tournamentId, string callerPlayerId, CancellationToken ct = default)
+    {
+        var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
+        if (tournament is null)
+        {
+            return null;
+        }
+
+        if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+        {
+            throw new TournamentValidationException("Tournament has already started.");
+        }
+
+        var registration = await registrationRepository.FindExistingAsync(tournamentId, callerPlayerId, null, ct);
+        if (registration is null)
+        {
+            return false;
+        }
+
+        var registrationId = registration.Id;
+        await registrationRepository.DeleteAsync(registration, ct);
+        await notifier.RegistrationChangedAsync(tournamentId, registrationId, ct);
+        return true;
+    }
+
+    private static void EnsureRegistrationOpen(Tournament tournament)
+    {
+        if (!TournamentStateMachine.IsRegistrationOpen(tournament.State))
+        {
+            throw new TournamentValidationException("Tournament is not accepting registrations.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (now < tournament.RegistrationStartDate || now > tournament.RegistrationEndDate)
+        {
+            throw new TournamentValidationException("Registration window is closed.");
+        }
+    }
+
+    private static void EnsureTierEligible(Tournament tournament, PlayerSummary player)
+    {
+        var tier = player.IsHighConfirmed ? 1000 : player.IsMidConfirmed ? 100 : 0;
+        if (tier < tournament.MinTier || tier > tournament.MaxTier)
+        {
+            throw new TournamentValidationException($"Player '{player.Uid}' is out of this tournament's tier group.");
+        }
+    }
+
+    // Port of applyForTournament.js's field validation + screenshot upload/reuse-fallback logic.
+    // `existingDetails` is this same registration's currently-stored details (if re-registering);
+    // `lastReg` is the player's cached last-registration (solo only — see RegisterTeamAsync).
+    private async Task<PlayerRegistrationDetails> BuildDetailsAsync(
+        Guid tournamentId, string playerId, PlayerRegistrationDetailsRequest r,
+        PlayerRegistrationDetails? existingDetails, LastRegistrationCache? lastReg, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(r.GameUid) ||
+            string.IsNullOrWhiteSpace(r.DarteNickname) ||
+            string.IsNullOrWhiteSpace(r.DartePresetName) ||
+            string.IsNullOrWhiteSpace(r.RosterName) ||
+            (!r.PrizeAsMoney && string.IsNullOrWhiteSpace(r.PrizeUid)))
+        {
+            throw new TournamentValidationException("Missing required registration fields.");
+        }
+
+        var rosterScreenshotUrl = r.RosterScreenshot is not null
+            ? await storageClient.UploadImageAsync(r.RosterScreenshot, $"tournaments/{tournamentId}/{playerId}-roster", ct)
+            : existingDetails?.RosterScreenshotUrl ?? lastReg?.RosterScreenshotUrl;
+
+        var hoyolabScreenshotUrl = r.HoyolabScreenshot is not null
+            ? await storageClient.UploadImageAsync(r.HoyolabScreenshot, $"tournaments/{tournamentId}/{playerId}-hoyolab", ct)
+            : existingDetails?.HoyolabScreenshotUrl ?? lastReg?.HoyolabScreenshotUrl;
+
+        if (rosterScreenshotUrl is null || hoyolabScreenshotUrl is null)
+        {
+            throw new TournamentValidationException("Missing required registration fields.");
+        }
+
+        return new PlayerRegistrationDetails
+        {
+            GameUid = r.GameUid,
+            PrizeAsMoney = r.PrizeAsMoney,
+            PrizeUid = r.PrizeAsMoney ? null : r.PrizeUid,
+            DarteNickname = r.DarteNickname,
+            DartePresetName = r.DartePresetName,
+            RosterName = r.RosterName,
+            RosterScreenshotUrl = rosterScreenshotUrl,
+            HoyolabScreenshotUrl = hoyolabScreenshotUrl,
+        };
+    }
+
+    private static PlayerRegistrationDetailsDto ToDetailsDto(PlayerRegistrationDetails d) =>
+        new(d.GameUid, d.PrizeAsMoney, d.PrizeUid, d.DarteNickname, d.DartePresetName, d.RosterName, d.RosterScreenshotUrl, d.HoyolabScreenshotUrl);
+
+    private static TournamentRegistrationDto ToDto(TournamentRegistration r) => new(
+        r.Id, r.TournamentId, r.Type, r.PlayerId, r.TeamId,
+        ToDetailsDto(r.Player1Details),
+        r.Player2Details is null ? null : ToDetailsDto(r.Player2Details),
+        r.Approved, r.RegisteredAt, r.UpdatedAt);
+}

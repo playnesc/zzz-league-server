@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{7AAF4EF0-3B2C-4580-B333-A008D3FF7433}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZenlessLeague.Api", "src\ZenlessLeague.Api\ZenlessLeague.Api.csproj", "{F775E879-BA7C-4D2F-BA75-9FF2F244D636}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZenlessLeague.Migrator", "src\ZenlessLeague.Migrator\ZenlessLeague.Migrator.csproj", "{2ED4E6CD-249F-4A24-925D-DF54461E855F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZenlessLeague.Api.Tests", "src\ZenlessLeague.Api.Tests\ZenlessLeague.Api.Tests.csproj", "{387850A6-41E4-49DD-A45E-B70B7F00C88C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F775E879-BA7C-4D2F-BA75-9FF2F244D636}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F775E879-BA7C-4D2F-BA75-9FF2F244D636}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F775E879-BA7C-4D2F-BA75-9FF2F244D636}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F775E879-BA7C-4D2F-BA75-9FF2F244D636}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2ED4E6CD-249F-4A24-925D-DF54461E855F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2ED4E6CD-249F-4A24-925D-DF54461E855F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2ED4E6CD-249F-4A24-925D-DF54461E855F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2ED4E6CD-249F-4A24-925D-DF54461E855F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{387850A6-41E4-49DD-A45E-B70B7F00C88C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{387850A6-41E4-49DD-A45E-B70B7F00C88C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{387850A6-41E4-49DD-A45E-B70B7F00C88C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{387850A6-41E4-49DD-A45E-B70B7F00C88C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F775E879-BA7C-4D2F-BA75-9FF2F244D636} = {7AAF4EF0-3B2C-4580-B333-A008D3FF7433}
+		{2ED4E6CD-249F-4A24-925D-DF54461E855F} = {7AAF4EF0-3B2C-4580-B333-A008D3FF7433}
+		{387850A6-41E4-49DD-A45E-B70B7F00C88C} = {7AAF4EF0-3B2C-4580-B333-A008D3FF7433}
+	EndGlobalSection
+EndGlobal
