@@ -37,15 +37,14 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<int>("P1Change")
                         .HasColumnType("integer");
 
-                    b.Property<string>("P1PlayerId")
-                        .IsRequired()
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid>("P1PlayerId")
+                        .HasColumnType("uuid");
 
                     b.Property<int?>("P2Change")
                         .HasColumnType("integer");
 
-                    b.Property<string>("P2PlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("P2PlayerId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ResultP1")
                         .HasColumnType("text");
@@ -84,9 +83,9 @@ namespace ZenlessLeague.Api.Migrations
 
             modelBuilder.Entity("ZenlessLeague.Api.Features.Players.Player", b =>
                 {
-                    b.Property<string>("Uid")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Avatar")
                         .HasColumnType("text");
@@ -135,12 +134,20 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<int>("TournamentPoints")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Uid")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<int>("Wins")
                         .HasColumnType("integer");
 
-                    b.HasKey("Uid");
+                    b.HasKey("Id");
 
                     b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("Uid")
                         .IsUnique();
 
                     b.ToTable("Players");
@@ -196,6 +203,22 @@ namespace ZenlessLeague.Api.Migrations
                     b.ToTable("ArchivedPlayerSnapshots");
                 });
 
+            modelBuilder.Entity("ZenlessLeague.Api.Features.Seasons.SeasonTimer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset?>("EndTimestamp")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SeasonTimers");
+                });
+
             modelBuilder.Entity("ZenlessLeague.Api.Features.Teams.Team", b =>
                 {
                     b.Property<Guid>("Id")
@@ -205,10 +228,6 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("CreatorPlayerId")
-                        .IsRequired()
-                        .HasColumnType("character varying(128)");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -217,15 +236,17 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<string>("PhotoUrl")
                         .HasColumnType("text");
 
-                    b.Property<string>("Player2PlayerId")
-                        .IsRequired()
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid>("Player1Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Player2Id")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatorPlayerId");
+                    b.HasIndex("Player1Id");
 
-                    b.HasIndex("Player2PlayerId");
+                    b.HasIndex("Player2Id");
 
                     b.ToTable("Teams");
                 });
@@ -238,15 +259,22 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<string>("ChallongeParticipantId")
                         .HasColumnType("text");
 
-                    b.Property<string>("PlayerId")
-                        .IsRequired()
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TeamId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("TournamentId", "ChallongeParticipantId");
 
                     b.HasIndex("PlayerId");
 
+                    b.HasIndex("TeamId");
+
                     b.HasIndex("TournamentId", "PlayerId")
+                        .IsUnique();
+
+                    b.HasIndex("TournamentId", "TeamId")
                         .IsUnique();
 
                     b.ToTable("TournamentChallongeParticipants");
@@ -264,17 +292,26 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<Guid?>("HistoryEntryId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("HistoryEntryId2")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("P1ApprovedResult")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("P1PlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("P1PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("P1TeamId")
+                        .HasColumnType("uuid");
 
                     b.Property<bool>("P2ApprovedResult")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("P2PlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("P2PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("P2TeamId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ResultP1")
                         .HasColumnType("text");
@@ -289,26 +326,42 @@ namespace ZenlessLeague.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("TechLossPlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("TechLossPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TechLossTeamId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("TournamentId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("WinnerPlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("WinnerPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WinnerTeamId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("HistoryEntryId");
 
+                    b.HasIndex("HistoryEntryId2");
+
                     b.HasIndex("P1PlayerId");
+
+                    b.HasIndex("P1TeamId");
 
                     b.HasIndex("P2PlayerId");
 
+                    b.HasIndex("P2TeamId");
+
                     b.HasIndex("TechLossPlayerId");
 
+                    b.HasIndex("TechLossTeamId");
+
                     b.HasIndex("WinnerPlayerId");
+
+                    b.HasIndex("WinnerTeamId");
 
                     b.HasIndex("TournamentId", "ChallongeMatchId")
                         .IsUnique();
@@ -405,14 +458,21 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<bool>("Visible")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("WinnerId")
-                        .HasColumnType("text");
+                    b.Property<Guid?>("WinnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WinnerTeamId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("LegacyId")
                         .IsUnique()
                         .HasFilter("\"LegacyId\" IS NOT NULL");
+
+                    b.HasIndex("WinnerId");
+
+                    b.HasIndex("WinnerTeamId");
 
                     b.ToTable("Tournaments");
                 });
@@ -426,8 +486,8 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<bool>("Approved")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("PlayerId")
-                        .HasColumnType("character varying(128)");
+                    b.Property<Guid?>("PlayerId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("RegisteredAt")
                         .HasColumnType("timestamp with time zone");
@@ -438,15 +498,14 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<Guid>("TournamentId")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("Type")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
                     b.HasIndex("PlayerId");
+
+                    b.HasIndex("TeamId");
 
                     b.HasIndex("TournamentId", "PlayerId")
                         .IsUnique()
@@ -487,8 +546,8 @@ namespace ZenlessLeague.Api.Migrations
                 {
                     b.OwnsOne("ZenlessLeague.Api.Features.Players.LastRegistrationCache", "LastRegistrationCache", b1 =>
                         {
-                            b1.Property<string>("PlayerUid")
-                                .HasColumnType("character varying(128)");
+                            b1.Property<Guid>("PlayerId")
+                                .HasColumnType("uuid");
 
                             b1.Property<string>("DarteNickname")
                                 .IsRequired()
@@ -526,12 +585,12 @@ namespace ZenlessLeague.Api.Migrations
                                 .HasColumnType("text")
                                 .HasColumnName("LastRegistration_RosterScreenshotUrl");
 
-                            b1.HasKey("PlayerUid");
+                            b1.HasKey("PlayerId");
 
                             b1.ToTable("Players");
 
                             b1.WithOwner()
-                                .HasForeignKey("PlayerUid");
+                                .HasForeignKey("PlayerId");
                         });
 
                     b.Navigation("LastRegistrationCache");
@@ -550,13 +609,13 @@ namespace ZenlessLeague.Api.Migrations
                 {
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
                         .WithMany()
-                        .HasForeignKey("CreatorPlayerId")
+                        .HasForeignKey("Player1Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
                         .WithMany()
-                        .HasForeignKey("Player2PlayerId")
+                        .HasForeignKey("Player2Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -566,8 +625,12 @@ namespace ZenlessLeague.Api.Migrations
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
                         .WithMany()
                         .HasForeignKey("PlayerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ZenlessLeague.Api.Features.Tournaments.Tournament", null)
                         .WithMany()
@@ -583,9 +646,19 @@ namespace ZenlessLeague.Api.Migrations
                         .HasForeignKey("HistoryEntryId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("ZenlessLeague.Api.Features.History.HistoryEntry", null)
+                        .WithMany()
+                        .HasForeignKey("HistoryEntryId2")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
                         .WithMany()
                         .HasForeignKey("P1PlayerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("P1TeamId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
@@ -593,9 +666,19 @@ namespace ZenlessLeague.Api.Migrations
                         .HasForeignKey("P2PlayerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("P2TeamId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
                         .WithMany()
                         .HasForeignKey("TechLossPlayerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TechLossTeamId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("ZenlessLeague.Api.Features.Tournaments.Tournament", null)
@@ -608,6 +691,24 @@ namespace ZenlessLeague.Api.Migrations
                         .WithMany()
                         .HasForeignKey("WinnerPlayerId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("WinnerTeamId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.Tournaments.Tournament", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("WinnerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("WinnerTeamId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("ZenlessLeague.Api.Features.Tournaments.TournamentRegistration", b =>
@@ -616,6 +717,11 @@ namespace ZenlessLeague.Api.Migrations
                         .WithMany()
                         .HasForeignKey("PlayerId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Teams.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("ZenlessLeague.Api.Features.Tournaments.Tournament", null)
                         .WithMany()

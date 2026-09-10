@@ -8,21 +8,21 @@ namespace ZenlessLeague.Api.Features.Tournaments.Realtime;
 // (thin "X changed" signals, not full object payloads — see ITournamentNotifier).
 public class TournamentHub : Hub
 {
-    public const string ListGroupName = "tournaments:list";
+	public const string ListGroupName = "tournaments:list";
 
-    public Task JoinTournament(Guid tournamentId) =>
-        Groups.AddToGroupAsync(Context.ConnectionId, GroupName(tournamentId));
+	public Task JoinTournament(Guid tournamentId) =>
+		Groups.AddToGroupAsync(Context.ConnectionId, GroupName(tournamentId));
 
-    public Task LeaveTournament(Guid tournamentId) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(tournamentId));
+	public Task LeaveTournament(Guid tournamentId) =>
+		Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(tournamentId));
 
-    public static string GroupName(Guid tournamentId) => $"tournament:{tournamentId}";
+	public static string GroupName(Guid tournamentId) => $"tournament:{tournamentId}";
 
-    public override async Task OnConnectedAsync()
-    {
-        // Every client gets list-level updates for free — mirrors the legacy root-layout's
-        // always-on `tournaments` listener (used by the tournament list page).
-        await Groups.AddToGroupAsync(Context.ConnectionId, ListGroupName);
-        await base.OnConnectedAsync();
-    }
+	public override async Task OnConnectedAsync()
+	{
+		// Every client gets list-level updates for free — mirrors the legacy root-layout's
+		// always-on `tournaments` listener (used by the tournament list page).
+		await Groups.AddToGroupAsync(Context.ConnectionId, ListGroupName);
+		await base.OnConnectedAsync();
+	}
 }

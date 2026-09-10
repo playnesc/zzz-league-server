@@ -2,13 +2,15 @@ namespace ZenlessLeague.Api.Features.Teams;
 
 public class Team
 {
-    public Guid Id { get; set; }
-    public required string Name { get; set; }
-    public string? PhotoUrl { get; set; }
+	public Guid Id { get; set; }
+	public required string Name { get; set; }
+	public string? PhotoUrl { get; set; }
 
-    // Firebase player uid, not a Postgres FK — players still live in RTDB.
-    public required string CreatorPlayerId { get; set; }
-    public required string Player2PlayerId { get; set; }
+	// FK into Players.Id (see AppDbContext's HasForeignKey config). Player1Id is the team's
+	// creator — the name change from CreatorPlayerId matches Player1Details/Player2Details'
+	// existing convention on TournamentRegistration.
+	public Guid Player1Id { get; set; }
+	public Guid Player2Id { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; }
+	public DateTimeOffset CreatedAt { get; set; }
 }

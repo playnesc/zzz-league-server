@@ -11,13 +11,13 @@ namespace ZenlessLeague.Migrator;
 
 public class MigrationReport
 {
-    public int Players { get; set; }
-    public int Archives { get; set; }
-    public int Tournaments { get; set; }
-    public int ChallongeParticipants { get; set; }
-    public int Registrations { get; set; }
-    public int Matches { get; set; }
-    public int HistoryEntries { get; set; }
+	public int Players { get; set; }
+	public int Archives { get; set; }
+	public int Tournaments { get; set; }
+	public int ChallongeParticipants { get; set; }
+	public int Registrations { get; set; }
+	public int Matches { get; set; }
+	public int HistoryEntries { get; set; }
 }
 
 // Reads each RTDB subtree once and upserts into Postgres, in FK-dependency order: Players (must
@@ -35,338 +35,340 @@ public class MigrationReport
 // same as a live run) rather than special-cased no-op logic scattered through each phase.
 public class MigrationRunner(AppDbContext db, IRtdbReader rtdb, bool dryRun)
 {
-    private HashSet<string> _playerUids = [];
+	private HashSet<string> _playerUids = [];
+	private Dictionary<string, Guid> _playerIdsByUid = [];
 
-    public async Task<MigrationReport> RunAsync(CancellationToken ct = default)
-    {
-        IDbContextTransaction? transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(ct)
-            : null;
+	public async Task<MigrationReport> RunAsync(CancellationToken ct = default)
+	{
+		IDbContextTransaction? transaction = db.Database.IsRelational()
+			? await db.Database.BeginTransactionAsync(ct)
+			: null;
 
-        try
-        {
-            var report = new MigrationReport
-            {
-                Players = await MigratePlayersAsync(ct),
-                Archives = await MigrateArchivesAsync(ct),
-            };
+		try
+		{
+			var report = new MigrationReport
+			{
+				Players = await MigratePlayersAsync(ct),
+				Archives = await MigrateArchivesAsync(ct),
+			};
 
-            var (tournaments, participants, registrations, matches, matchHistoryLinks) = await MigrateTournamentsAsync(ct);
-            report.Tournaments = tournaments;
-            report.ChallongeParticipants = participants;
-            report.Registrations = registrations;
-            report.Matches = matches;
+			var (tournaments, participants, registrations, matches, matchHistoryLinks) = await MigrateTournamentsAsync(ct);
+			report.Tournaments = tournaments;
+			report.ChallongeParticipants = participants;
+			report.Registrations = registrations;
+			report.Matches = matches;
 
-            report.HistoryEntries = await MigrateHistoryAsync(ct);
-            await LinkMatchHistoryEntriesAsync(matchHistoryLinks, ct);
+			report.HistoryEntries = await MigrateHistoryAsync(ct);
+			await LinkMatchHistoryEntriesAsync(matchHistoryLinks, ct);
 
-            if (transaction is not null)
-            {
-                if (dryRun)
-                {
-                    await transaction.RollbackAsync(ct);
-                }
-                else
-                {
-                    await transaction.CommitAsync(ct);
-                }
-            }
+			if (transaction is not null)
+			{
+				if (dryRun)
+				{
+					await transaction.RollbackAsync(ct);
+				}
+				else
+				{
+					await transaction.CommitAsync(ct);
+				}
+			}
 
-            return report;
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
-        }
-    }
+			return report;
+		}
+		finally
+		{
+			if (transaction is not null)
+			{
+				await transaction.DisposeAsync();
+			}
+		}
+	}
 
-    private async Task<int> MigratePlayersAsync(CancellationToken ct)
-    {
-        var players = await rtdb.GetMapAsync("players", ct);
-        var count = 0;
+	private async Task<int> MigratePlayersAsync(CancellationToken ct)
+	{
+		var players = await rtdb.GetMapAsync("players", ct);
+		var count = 0;
 
-        if (players is not null)
-        {
-            foreach (var (uid, element) in players)
-            {
-                var legacy = RtdbReader.Parse<LegacyPlayer>(element);
-                if (legacy is null)
-                {
-                    continue;
-                }
+		if (players is not null)
+		{
+			foreach (var (uid, element) in players)
+			{
+				var legacy = RtdbReader.Parse<LegacyPlayer>(element);
+				if (legacy is null)
+				{
+					continue;
+				}
 
-                var player = await db.Players.FindAsync([uid], ct);
-                if (player is null)
-                {
-                    player = new Player { Uid = uid, Name = legacy.Name ?? uid, CreatedAt = DateTimeOffset.UtcNow };
-                    db.Players.Add(player);
-                }
+				var player = await db.Players.FirstOrDefaultAsync(p => p.Uid == uid, ct);
+				if (player is null)
+				{
+					player = new Player { Id = Guid.NewGuid(), Uid = uid, Name = legacy.Name ?? uid, CreatedAt = DateTimeOffset.UtcNow };
+					db.Players.Add(player);
+				}
 
-                LegacyMapper.ApplyTo(player, uid, legacy);
-                count++;
-            }
+				LegacyMapper.ApplyTo(player, uid, legacy);
+				count++;
+			}
 
-            await db.SaveChangesAsync(ct);
-        }
+			await db.SaveChangesAsync(ct);
+		}
 
-        // Preloaded for fast existence checks in later phases — includes players already in the
-        // database from a prior run, not just ones just migrated, so re-runs resolve refs correctly.
-        _playerUids = (await db.Players.Select(p => p.Uid).ToListAsync(ct)).ToHashSet();
+		// Preloaded for fast existence checks/FK resolution in later phases — includes players
+		// already in the database from a prior run, not just ones just migrated, so re-runs
+		// resolve refs correctly.
+		_playerIdsByUid = await db.Players.ToDictionaryAsync(p => p.Uid, p => p.Id, ct);
+		_playerUids = _playerIdsByUid.Keys.ToHashSet();
 
-        return count;
-    }
+		return count;
+	}
 
-    private async Task<int> MigrateArchivesAsync(CancellationToken ct)
-    {
-        var archives = await rtdb.GetMapAsync("archives", ct);
-        if (archives is null)
-        {
-            return 0;
-        }
+	private async Task<int> MigrateArchivesAsync(CancellationToken ct)
+	{
+		var archives = await rtdb.GetMapAsync("archives", ct);
+		if (archives is null)
+		{
+			return 0;
+		}
 
-        var count = 0;
-        foreach (var (seasonName, element) in archives)
-        {
-            var legacyPlayers = RtdbReader.Parse<List<LegacyArchivePlayer>>(element) ?? [];
+		var count = 0;
+		foreach (var (seasonName, element) in archives)
+		{
+			var legacyPlayers = RtdbReader.Parse<List<LegacyArchivePlayer>>(element) ?? [];
 
-            // Re-running with a season name that already exists overwrites the snapshot — same
-            // delete-then-recreate approach as SeasonService.ResetSeasonAsync, for the same reason
-            // (avoids an EF change-tracking hazard around clearing a required child collection).
-            var existing = await db.Archives.Include(a => a.Players).FirstOrDefaultAsync(a => a.SeasonName == seasonName, ct);
-            if (existing is not null)
-            {
-                db.Archives.Remove(existing);
-            }
+			// Re-running with a season name that already exists overwrites the snapshot — same
+			// delete-then-recreate approach as SeasonService.ResetSeasonAsync, for the same reason
+			// (avoids an EF change-tracking hazard around clearing a required child collection).
+			var existing = await db.Archives.Include(a => a.Players).FirstOrDefaultAsync(a => a.SeasonName == seasonName, ct);
+			if (existing is not null)
+			{
+				db.Archives.Remove(existing);
+			}
 
-            db.Archives.Add(new Archive
-            {
-                Id = Guid.NewGuid(),
-                SeasonName = seasonName,
-                CreatedAt = DateTimeOffset.UtcNow,
-                Players = legacyPlayers.Select(LegacyMapper.ToArchivedPlayerSnapshot).ToList(),
-            });
-            count++;
-        }
+			db.Archives.Add(new Archive
+			{
+				Id = Guid.NewGuid(),
+				SeasonName = seasonName,
+				CreatedAt = DateTimeOffset.UtcNow,
+				Players = legacyPlayers.Select(LegacyMapper.ToArchivedPlayerSnapshot).ToList(),
+			});
+			count++;
+		}
 
-        await db.SaveChangesAsync(ct);
-        return count;
-    }
+		await db.SaveChangesAsync(ct);
+		return count;
+	}
 
-    private async Task<(int Tournaments, int Participants, int Registrations, int Matches, List<(Guid MatchId, string LegacyHistoryKey)> MatchHistoryLinks)>
-        MigrateTournamentsAsync(CancellationToken ct)
-    {
-        var tournaments = await rtdb.GetMapAsync("tournaments", ct);
-        var matchHistoryLinks = new List<(Guid, string)>();
-        if (tournaments is null)
-        {
-            return (0, 0, 0, 0, matchHistoryLinks);
-        }
+	private async Task<(int Tournaments, int Participants, int Registrations, int Matches, List<(Guid MatchId, string LegacyHistoryKey)> MatchHistoryLinks)>
+		MigrateTournamentsAsync(CancellationToken ct)
+	{
+		var tournaments = await rtdb.GetMapAsync("tournaments", ct);
+		var matchHistoryLinks = new List<(Guid, string)>();
+		if (tournaments is null)
+		{
+			return (0, 0, 0, 0, matchHistoryLinks);
+		}
 
-        var tournamentCount = 0;
-        var participantCount = 0;
-        var registrationCount = 0;
-        var matchCount = 0;
+		var tournamentCount = 0;
+		var participantCount = 0;
+		var registrationCount = 0;
+		var matchCount = 0;
 
-        foreach (var (legacyId, element) in tournaments)
-        {
-            var legacy = RtdbReader.Parse<LegacyTournament>(element);
-            if (legacy is null)
-            {
-                continue;
-            }
+		foreach (var (legacyId, element) in tournaments)
+		{
+			var legacy = RtdbReader.Parse<LegacyTournament>(element);
+			if (legacy is null)
+			{
+				continue;
+			}
 
-            var tournament = await db.Tournaments.FirstOrDefaultAsync(t => t.LegacyId == legacyId, ct);
-            if (tournament is null)
-            {
-                tournament = new Tournament { Id = Guid.NewGuid(), Name = legacy.Name ?? legacyId };
-                db.Tournaments.Add(tournament);
-            }
+			var tournament = await db.Tournaments.FirstOrDefaultAsync(t => t.LegacyId == legacyId, ct);
+			if (tournament is null)
+			{
+				tournament = new Tournament { Id = Guid.NewGuid(), Name = legacy.Name ?? legacyId };
+				db.Tournaments.Add(tournament);
+			}
 
-            LegacyMapper.ApplyTo(tournament, legacyId, legacy);
-            tournamentCount++;
+			LegacyMapper.ApplyTo(tournament, legacyId, legacy, _playerIdsByUid);
+			tournamentCount++;
 
-            var tournamentId = tournament.Id; // client-generated Guid — valid even before SaveChangesAsync
+			var tournamentId = tournament.Id; // client-generated Guid — valid even before SaveChangesAsync
 
-            if (legacy.ChallongeParticipants is { Count: > 0 })
-            {
-                var existingParticipantIds = (await db.TournamentChallongeParticipants
-                    .Where(p => p.TournamentId == tournamentId)
-                    .Select(p => p.ChallongeParticipantId)
-                    .ToListAsync(ct)).ToHashSet();
+			if (legacy.ChallongeParticipants is { Count: > 0 })
+			{
+				var existingParticipantIds = (await db.TournamentChallongeParticipants
+					.Where(p => p.TournamentId == tournamentId)
+					.Select(p => p.ChallongeParticipantId)
+					.ToListAsync(ct)).ToHashSet();
 
-                foreach (var (challongeParticipantId, uid) in legacy.ChallongeParticipants)
-                {
-                    if (existingParticipantIds.Contains(challongeParticipantId) || !_playerUids.Contains(uid))
-                    {
-                        continue;
-                    }
+				foreach (var (challongeParticipantId, uid) in legacy.ChallongeParticipants)
+				{
+					if (existingParticipantIds.Contains(challongeParticipantId) || !_playerUids.Contains(uid))
+					{
+						continue;
+					}
 
-                    db.TournamentChallongeParticipants.Add(new TournamentChallongeParticipant
-                    {
-                        TournamentId = tournamentId,
-                        ChallongeParticipantId = challongeParticipantId,
-                        PlayerId = uid,
-                    });
-                    participantCount++;
-                }
-            }
+					db.TournamentChallongeParticipants.Add(new TournamentChallongeParticipant
+					{
+						TournamentId = tournamentId,
+						ChallongeParticipantId = challongeParticipantId,
+						PlayerId = _playerIdsByUid[uid],
+					});
+					participantCount++;
+				}
+			}
 
-            if (legacy.Registrations is { Count: > 0 })
-            {
-                foreach (var (uid, legacyReg) in legacy.Registrations)
-                {
-                    if (!_playerUids.Contains(uid))
-                    {
-                        continue;
-                    }
+			if (legacy.Registrations is { Count: > 0 })
+			{
+				foreach (var (uid, legacyReg) in legacy.Registrations)
+				{
+					if (!_playerIdsByUid.TryGetValue(uid, out var playerId))
+					{
+						continue;
+					}
 
-                    var registration = await db.TournamentRegistrations
-                        .FirstOrDefaultAsync(r => r.TournamentId == tournamentId && r.PlayerId == uid, ct);
-                    if (registration is null)
-                    {
-                        registration = new TournamentRegistration
-                        {
-                            Id = Guid.NewGuid(),
-                            TournamentId = tournamentId,
-                            Type = TournamentRegistrationType.Solo,
-                            PlayerId = uid,
-                            Player1Details = LegacyMapper.ToRegistrationDetails(legacyReg),
-                            RegisteredAt = LegacyMapper.ToDateTimeOffset(legacyReg.RegistrationTimestamp) ?? DateTimeOffset.UtcNow,
-                            UpdatedAt = DateTimeOffset.UtcNow,
-                        };
-                        db.TournamentRegistrations.Add(registration);
-                    }
-                    else
-                    {
-                        registration.Player1Details = LegacyMapper.ToRegistrationDetails(legacyReg);
-                        registration.UpdatedAt = DateTimeOffset.UtcNow;
-                    }
+					var registration = await db.TournamentRegistrations
+						.FirstOrDefaultAsync(r => r.TournamentId == tournamentId && r.PlayerId == playerId, ct);
+					if (registration is null)
+					{
+						registration = new TournamentRegistration
+						{
+							Id = Guid.NewGuid(),
+							TournamentId = tournamentId,
+							PlayerId = playerId,
+							Player1Details = LegacyMapper.ToRegistrationDetails(legacyReg),
+							RegisteredAt = LegacyMapper.ToDateTimeOffset(legacyReg.RegistrationTimestamp) ?? DateTimeOffset.UtcNow,
+							UpdatedAt = DateTimeOffset.UtcNow,
+						};
+						db.TournamentRegistrations.Add(registration);
+					}
+					else
+					{
+						registration.Player1Details = LegacyMapper.ToRegistrationDetails(legacyReg);
+						registration.UpdatedAt = DateTimeOffset.UtcNow;
+					}
 
-                    registration.Approved = legacyReg.Approved ?? false;
-                    registrationCount++;
-                }
-            }
+					registration.Approved = legacyReg.Approved ?? false;
+					registrationCount++;
+				}
+			}
 
-            if (legacy.Matches is { Count: > 0 })
-            {
-                foreach (var (_, legacyMatch) in legacy.Matches)
-                {
-                    var match = await db.TournamentMatches
-                        .FirstOrDefaultAsync(m => m.TournamentId == tournamentId && m.ChallongeMatchId == legacyMatch.Id, ct);
-                    if (match is null)
-                    {
-                        match = new TournamentMatch
-                        {
-                            Id = Guid.NewGuid(),
-                            TournamentId = tournamentId,
-                            ChallongeMatchId = legacyMatch.Id,
-                            State = legacyMatch.State ?? "open",
-                        };
-                        db.TournamentMatches.Add(match);
-                    }
+			if (legacy.Matches is { Count: > 0 })
+			{
+				foreach (var (_, legacyMatch) in legacy.Matches)
+				{
+					var match = await db.TournamentMatches
+						.FirstOrDefaultAsync(m => m.TournamentId == tournamentId && m.ChallongeMatchId == legacyMatch.Id, ct);
+					if (match is null)
+					{
+						match = new TournamentMatch
+						{
+							Id = Guid.NewGuid(),
+							TournamentId = tournamentId,
+							ChallongeMatchId = legacyMatch.Id,
+							State = legacyMatch.State ?? "open",
+						};
+						db.TournamentMatches.Add(match);
+					}
 
-                    LegacyMapper.ApplyTo(
-                        match, tournamentId, legacyMatch,
-                        LegacyMapper.ResolvePlayerRef(legacyMatch.P1, _playerUids),
-                        LegacyMapper.ResolvePlayerRef(legacyMatch.P2, _playerUids),
-                        LegacyMapper.ResolvePlayerRef(legacyMatch.WinnerId, _playerUids),
-                        LegacyMapper.ResolvePlayerRef(legacyMatch.TechLossUid, _playerUids));
-                    matchCount++;
+					LegacyMapper.ApplyTo(
+						match, tournamentId, legacyMatch,
+						LegacyMapper.ResolvePlayerRef(legacyMatch.P1, _playerIdsByUid),
+						LegacyMapper.ResolvePlayerRef(legacyMatch.P2, _playerIdsByUid),
+						LegacyMapper.ResolvePlayerRef(legacyMatch.WinnerId, _playerIdsByUid),
+						LegacyMapper.ResolvePlayerRef(legacyMatch.TechLossUid, _playerIdsByUid));
+					matchCount++;
 
-                    if (!string.IsNullOrEmpty(legacyMatch.HistoryKey))
-                    {
-                        matchHistoryLinks.Add((match.Id, legacyMatch.HistoryKey));
-                    }
-                }
-            }
+					if (!string.IsNullOrEmpty(legacyMatch.HistoryKey))
+					{
+						matchHistoryLinks.Add((match.Id, legacyMatch.HistoryKey));
+					}
+				}
+			}
 
-            await db.SaveChangesAsync(ct);
-        }
+			await db.SaveChangesAsync(ct);
+		}
 
-        return (tournamentCount, participantCount, registrationCount, matchCount, matchHistoryLinks);
-    }
+		return (tournamentCount, participantCount, registrationCount, matchCount, matchHistoryLinks);
+	}
 
-    private async Task<int> MigrateHistoryAsync(CancellationToken ct)
-    {
-        var history = await rtdb.GetMapAsync("historyV3", ct);
-        if (history is null)
-        {
-            return 0;
-        }
+	private async Task<int> MigrateHistoryAsync(CancellationToken ct)
+	{
+		var history = await rtdb.GetMapAsync("historyV3", ct);
+		if (history is null)
+		{
+			return 0;
+		}
 
-        var tournamentIdMap = await db.Tournaments
-            .Where(t => t.LegacyId != null)
-            .ToDictionaryAsync(t => t.LegacyId!, t => t.Id, ct);
+		var tournamentIdMap = await db.Tournaments
+			.Where(t => t.LegacyId != null)
+			.ToDictionaryAsync(t => t.LegacyId!, t => t.Id, ct);
 
-        var count = 0;
-        foreach (var (legacyKey, element) in history)
-        {
-            var legacy = RtdbReader.Parse<LegacyHistoryEntry>(element);
-            if (legacy?.P1 is null || !_playerUids.Contains(legacy.P1))
-            {
-                continue;
-            }
+		var count = 0;
+		foreach (var (legacyKey, element) in history)
+		{
+			var legacy = RtdbReader.Parse<LegacyHistoryEntry>(element);
+			if (legacy?.P1 is null || !_playerIdsByUid.TryGetValue(legacy.P1, out var p1PlayerId))
+			{
+				continue;
+			}
 
-            var entry = await db.HistoryEntries.FirstOrDefaultAsync(h => h.LegacyHistoryKey == legacyKey, ct);
-            if (entry is null)
-            {
-                entry = new HistoryEntry { Id = Guid.NewGuid(), P1PlayerId = legacy.P1, LegacyHistoryKey = legacyKey };
-                db.HistoryEntries.Add(entry);
-            }
+			var entry = await db.HistoryEntries.FirstOrDefaultAsync(h => h.LegacyHistoryKey == legacyKey, ct);
+			if (entry is null)
+			{
+				entry = new HistoryEntry { Id = Guid.NewGuid(), P1PlayerId = p1PlayerId, LegacyHistoryKey = legacyKey };
+				db.HistoryEntries.Add(entry);
+			}
 
-            var (challongeMatchId, kind) = LegacyMapper.ResolveTournamentMatch(legacy.TournamentMatch);
-            var tournamentId = legacy.TournamentId is not null && tournamentIdMap.TryGetValue(legacy.TournamentId, out var tid) ? (Guid?)tid : null;
+			var (challongeMatchId, kind) = LegacyMapper.ResolveTournamentMatch(legacy.TournamentMatch);
+			var tournamentId = legacy.TournamentId is not null && tournamentIdMap.TryGetValue(legacy.TournamentId, out var tid) ? (Guid?)tid : null;
 
-            entry.P1PlayerId = legacy.P1;
-            entry.P1Change = legacy.P1Change;
-            entry.P2PlayerId = legacy.P2 is not null && _playerUids.Contains(legacy.P2) ? legacy.P2 : null;
-            entry.P2Change = legacy.P2Change;
-            entry.TournamentId = tournamentId;
-            entry.Kind = kind;
-            entry.ResultP1 = legacy.ResultP1;
-            entry.ResultP2 = legacy.ResultP2;
-            entry.ResultScreenshotUrl = legacy.ResultScreenshot;
-            entry.Timestamp = LegacyMapper.ToDateTimeOffset(legacy.Timestamp) ?? DateTimeOffset.UtcNow;
+			entry.P1PlayerId = p1PlayerId;
+			entry.P1Change = legacy.P1Change;
+			entry.P2PlayerId = legacy.P2 is not null && _playerIdsByUid.TryGetValue(legacy.P2, out var p2PlayerId) ? p2PlayerId : null;
+			entry.P2Change = legacy.P2Change;
+			entry.TournamentId = tournamentId;
+			entry.Kind = kind;
+			entry.ResultP1 = legacy.ResultP1;
+			entry.ResultP2 = legacy.ResultP2;
+			entry.ResultScreenshotUrl = legacy.ResultScreenshot;
+			entry.Timestamp = LegacyMapper.ToDateTimeOffset(legacy.Timestamp) ?? DateTimeOffset.UtcNow;
 
-            if (challongeMatchId is not null && tournamentId is not null)
-            {
-                var match = await db.TournamentMatches.FirstOrDefaultAsync(
-                    m => m.TournamentId == tournamentId && m.ChallongeMatchId == challongeMatchId, ct);
-                entry.TournamentMatchId = match?.Id;
-            }
+			if (challongeMatchId is not null && tournamentId is not null)
+			{
+				var match = await db.TournamentMatches.FirstOrDefaultAsync(
+					m => m.TournamentId == tournamentId && m.ChallongeMatchId == challongeMatchId, ct);
+				entry.TournamentMatchId = match?.Id;
+			}
 
-            count++;
-        }
+			count++;
+		}
 
-        await db.SaveChangesAsync(ct);
-        return count;
-    }
+		await db.SaveChangesAsync(ct);
+		return count;
+	}
 
-    private async Task LinkMatchHistoryEntriesAsync(List<(Guid MatchId, string LegacyHistoryKey)> links, CancellationToken ct)
-    {
-        if (links.Count == 0)
-        {
-            return;
-        }
+	private async Task LinkMatchHistoryEntriesAsync(List<(Guid MatchId, string LegacyHistoryKey)> links, CancellationToken ct)
+	{
+		if (links.Count == 0)
+		{
+			return;
+		}
 
-        foreach (var (matchId, legacyHistoryKey) in links)
-        {
-            var entry = await db.HistoryEntries.FirstOrDefaultAsync(h => h.LegacyHistoryKey == legacyHistoryKey, ct);
-            if (entry is null)
-            {
-                continue;
-            }
+		foreach (var (matchId, legacyHistoryKey) in links)
+		{
+			var entry = await db.HistoryEntries.FirstOrDefaultAsync(h => h.LegacyHistoryKey == legacyHistoryKey, ct);
+			if (entry is null)
+			{
+				continue;
+			}
 
-            var match = await db.TournamentMatches.FirstOrDefaultAsync(m => m.Id == matchId, ct);
-            if (match is not null)
-            {
-                match.HistoryEntryId = entry.Id;
-            }
-        }
+			var match = await db.TournamentMatches.FirstOrDefaultAsync(m => m.Id == matchId, ct);
+			if (match is not null)
+			{
+				match.HistoryEntryId = entry.Id;
+			}
+		}
 
-        await db.SaveChangesAsync(ct);
-    }
+		await db.SaveChangesAsync(ct);
+	}
 }

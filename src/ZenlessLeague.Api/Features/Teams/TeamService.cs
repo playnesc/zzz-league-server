@@ -1,105 +1,150 @@
+using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Features.Storage;
 
 namespace ZenlessLeague.Api.Features.Teams;
 
 public interface ITeamService
 {
-    Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct = default);
-    Task<TeamDto?> GetAsync(Guid id, CancellationToken ct = default);
-    Task<List<TeamDto>> ListAsync(CancellationToken ct = default);
-    Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default);
-    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+	Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct = default);
+	Task<TeamDto?> GetAsync(Guid id, CancellationToken ct = default);
+	Task<List<TeamDto>> ListByPlayerAsync(string uid, CancellationToken ct = default);
+	Task<TeamPageDto> ListPageAsync(int take, DateTimeOffset? beforeCreatedAt, Guid? beforeId, CancellationToken ct = default);
+	Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default);
+	Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
 /// <summary>Thrown for cross-store validation failures (missing player, duplicate player id) — maps to 400.</summary>
-public class TeamValidationException(string message) : Exception(message);
+public class TeamValidationException(string message) : ValidationApiException(message);
 
-public class TeamService(ITeamRepository teamRepository, IPlayerRepository playerRepository) : ITeamService
+public class TeamService(ITeamRepository teamRepository, IPlayerRepository playerRepository, IFirebaseStorageClient storageClient) : ITeamService
 {
-    public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct = default)
-    {
-        if (request.CreatorPlayerId == request.Player2PlayerId)
-        {
-            throw new TeamValidationException("A team's two players must be different.");
-        }
+	public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct = default)
+	{
+		if (request.CreatorPlayerId == request.Player2PlayerId)
+		{
+			throw new TeamValidationException("A team's two players must be different.");
+		}
 
-        var creator = await playerRepository.GetByIdAsync(request.CreatorPlayerId, ct)
-            ?? throw new TeamValidationException($"Player '{request.CreatorPlayerId}' does not exist.");
-        var player2 = await playerRepository.GetByIdAsync(request.Player2PlayerId, ct)
-            ?? throw new TeamValidationException($"Player '{request.Player2PlayerId}' does not exist.");
+		var creator = await playerRepository.GetEntityByUidAsync(request.CreatorPlayerId, ct)
+			?? throw new TeamValidationException($"Player '{request.CreatorPlayerId}' does not exist.");
+		var player2 = await playerRepository.GetEntityByUidAsync(request.Player2PlayerId, ct)
+			?? throw new TeamValidationException($"Player '{request.Player2PlayerId}' does not exist.");
 
-        var team = await teamRepository.CreateAsync(new Team
-        {
-            Id = Guid.NewGuid(),
-            Name = request.Name,
-            PhotoUrl = request.PhotoUrl,
-            CreatorPlayerId = request.CreatorPlayerId,
-            Player2PlayerId = request.Player2PlayerId,
-            CreatedAt = DateTimeOffset.UtcNow,
-        }, ct);
+		var teamId = Guid.NewGuid();
+		var photoUrl = request.Photo is not null
+			? await storageClient.UploadImageAsync(request.Photo, $"teams/{teamId}/logo", ct)
+			: null;
 
-        return ToDto(team, creator, player2);
-    }
+		var team = await teamRepository.CreateAsync(new Team
+		{
+			Id = teamId,
+			Name = request.Name,
+			PhotoUrl = photoUrl,
+			Player1Id = creator.Id,
+			Player2Id = player2.Id,
+			CreatedAt = DateTimeOffset.UtcNow,
+		}, ct);
 
-    public async Task<TeamDto?> GetAsync(Guid id, CancellationToken ct = default)
-    {
-        var team = await teamRepository.GetByIdAsync(id, ct);
-        return team is null ? null : await EnrichAsync(team, ct);
-    }
+		return ToDto(team, ToSummary(creator), ToSummary(player2));
+	}
 
-    public async Task<List<TeamDto>> ListAsync(CancellationToken ct = default)
-    {
-        var teams = await teamRepository.ListAsync(ct);
-        var dtos = new List<TeamDto>(teams.Count);
-        foreach (var team in teams)
-        {
-            dtos.Add(await EnrichAsync(team, ct));
-        }
+	public async Task<TeamDto?> GetAsync(Guid id, CancellationToken ct = default)
+	{
+		var team = await teamRepository.GetByIdAsync(id, ct);
+		return team is null ? null : await EnrichAsync(team, ct);
+	}
 
-        return dtos;
-    }
+	public async Task<List<TeamDto>> ListByPlayerAsync(string uid, CancellationToken ct = default)
+	{
+		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
+		if (player is null)
+		{
+			return [];
+		}
 
-    public async Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default)
-    {
-        var team = await teamRepository.GetByIdAsync(id, ct);
-        if (team is null)
-        {
-            return null;
-        }
+		var teams = await teamRepository.ListByPlayerAsync(player.Id, ct);
+		var dtos = new List<TeamDto>(teams.Count);
+		foreach (var team in teams)
+		{
+			dtos.Add(await EnrichAsync(team, ct));
+		}
 
-        if (request.Player2PlayerId == team.CreatorPlayerId)
-        {
-            throw new TeamValidationException("A team's two players must be different.");
-        }
+		return dtos;
+	}
 
-        var player2 = await playerRepository.GetByIdAsync(request.Player2PlayerId, ct)
-            ?? throw new TeamValidationException($"Player '{request.Player2PlayerId}' does not exist.");
+	public async Task<TeamPageDto> ListPageAsync(int take, DateTimeOffset? beforeCreatedAt, Guid? beforeId, CancellationToken ct = default)
+	{
+		var teams = await teamRepository.ListPageAsync(take, beforeCreatedAt, beforeId, ct);
+		var dtos = new List<TeamDto>(teams.Count);
+		foreach (var team in teams)
+		{
+			dtos.Add(await EnrichAsync(team, ct));
+		}
 
-        team.Name = request.Name;
-        team.PhotoUrl = request.PhotoUrl;
-        team.Player2PlayerId = request.Player2PlayerId;
-        await teamRepository.SaveChangesAsync(ct);
+		return new TeamPageDto(dtos, teams.Count == take);
+	}
 
-        var creator = await playerRepository.GetByIdAsync(team.CreatorPlayerId, ct)
-            ?? throw new TeamValidationException($"Player '{team.CreatorPlayerId}' no longer exists.");
+	public async Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default)
+	{
+		var team = await teamRepository.GetByIdAsync(id, ct);
+		if (team is null)
+		{
+			return null;
+		}
 
-        return ToDto(team, creator, player2);
-    }
+		var player2 = await playerRepository.GetEntityByUidAsync(request.Player2PlayerId, ct)
+			?? throw new TeamValidationException($"Player '{request.Player2PlayerId}' does not exist.");
 
-    public Task<bool> DeleteAsync(Guid id, CancellationToken ct = default) => teamRepository.DeleteAsync(id, ct);
+		if (player2.Id == team.Player1Id)
+		{
+			throw new TeamValidationException("A team's two players must be different.");
+		}
 
-    // CreatorPlayerId/Player2PlayerId are real FKs into Players now, so these rows are
-    // guaranteed to exist — no "player vanished" fallback needed anymore.
-    private async Task<TeamDto> EnrichAsync(Team team, CancellationToken ct)
-    {
-        var creator = await playerRepository.GetByIdAsync(team.CreatorPlayerId, ct)
-            ?? throw new InvalidOperationException($"Player '{team.CreatorPlayerId}' referenced by team '{team.Id}' is missing.");
-        var player2 = await playerRepository.GetByIdAsync(team.Player2PlayerId, ct)
-            ?? throw new InvalidOperationException($"Player '{team.Player2PlayerId}' referenced by team '{team.Id}' is missing.");
+		team.Name = request.Name;
+		if (request.Photo is not null)
+		{
+			team.PhotoUrl = await storageClient.UploadImageAsync(request.Photo, $"teams/{team.Id}/logo", ct);
+		}
+		team.Player2Id = player2.Id;
+		await teamRepository.SaveChangesAsync(ct);
 
-        return ToDto(team, creator, player2);
-    }
+		var creator = await playerRepository.GetEntityByIdAsync(team.Player1Id, ct)
+			?? throw new TeamValidationException($"Player '{team.Player1Id}' no longer exists.");
 
-    private static TeamDto ToDto(Team team, PlayerSummary creator, PlayerSummary player2) =>
-        new(team.Id, team.Name, team.PhotoUrl, creator, player2, team.CreatedAt);
+		return ToDto(team, ToSummary(creator), ToSummary(player2));
+	}
+
+	public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+	{
+		var team = await teamRepository.GetByIdAsync(id, ct);
+		if (team is null)
+		{
+			return false;
+		}
+
+		if (team.PhotoUrl is not null)
+		{
+			await storageClient.DeleteImageAsync($"teams/{id}/logo", ct);
+		}
+
+		return await teamRepository.DeleteAsync(id, ct);
+	}
+
+	// Player1Id/Player2Id are real FKs into Players now, so these rows are guaranteed to
+	// exist — no "player vanished" fallback needed anymore.
+	private async Task<TeamDto> EnrichAsync(Team team, CancellationToken ct)
+	{
+		var creator = await playerRepository.GetByIdAsync(team.Player1Id, ct)
+			?? throw new InvalidOperationException($"Player '{team.Player1Id}' referenced by team '{team.Id}' is missing.");
+		var player2 = await playerRepository.GetByIdAsync(team.Player2Id, ct)
+			?? throw new InvalidOperationException($"Player '{team.Player2Id}' referenced by team '{team.Id}' is missing.");
+
+		return ToDto(team, creator, player2);
+	}
+
+	private static PlayerSummary ToSummary(Player p) => new(p.Uid, p.Name, p.Avatar, p.IsMidConfirmed, p.IsHighConfirmed);
+
+	private static TeamDto ToDto(Team team, PlayerSummary creator, PlayerSummary player2) =>
+		new(team.Id, team.Name, team.PhotoUrl, creator, player2, team.CreatedAt);
 }

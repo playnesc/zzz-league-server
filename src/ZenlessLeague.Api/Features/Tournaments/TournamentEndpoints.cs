@@ -2,114 +2,85 @@ namespace ZenlessLeague.Api.Features.Tournaments;
 
 public static class TournamentEndpoints
 {
-    public static void MapTournamentEndpoints(this IEndpointRouteBuilder app)
-    {
-        var group = app.MapGroup("/api/tournaments");
+	public static void MapTournamentEndpoints(this IEndpointRouteBuilder app)
+	{
+		var group = app.MapGroup("/api/tournaments");
 
-        group.MapPost("/", async (CreateTournamentRequest request, ITournamentService service, CancellationToken ct) =>
-        {
-            var tournament = await service.CreateAsync(request, ct);
-            return Results.Created($"/api/tournaments/{tournament.Id}", tournament);
-        }).RequireAuthorization("Admin");
+		group.MapPost("/", async (CreateTournamentRequest request, ITournamentService service, CancellationToken ct) =>
+		{
+			var tournament = await service.CreateAsync(request, ct);
+			return Results.Created($"/api/tournaments/{tournament.Id}", tournament);
+		}).RequireAuthorization("Admin");
 
-        group.MapGet("/", async (ITournamentService service, CancellationToken ct) =>
-            Results.Ok(await service.ListAsync(ct)));
+		group.MapGet("/", async (ITournamentService service, CancellationToken ct) =>
+			Results.Ok(await service.ListAsync(ct)));
 
-        group.MapGet("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
-        {
-            var tournament = await service.GetAsync(id, ct);
-            return tournament is null ? Results.NotFound() : Results.Ok(tournament);
-        });
+		group.MapGet("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		{
+			var tournament = await service.GetAsync(id, ct);
+			return tournament is null ? Results.NotFound() : Results.Ok(tournament);
+		});
 
-        group.MapPost("/{id:guid}/close-registration", async (Guid id, ITournamentService service, CancellationToken ct) =>
-            await Handle(id, service, s => s.CloseRegistrationAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPut("/{id:guid}", async (Guid id, UpdateTournamentRequest request, ITournamentService service, CancellationToken ct) =>
+		{
+			var tournament = await service.UpdateAsync(id, request, ct);
+			return tournament is null ? Results.NotFound() : Results.Ok(tournament);
+		}).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/challonge-bracket", async (Guid id, ITournamentService service, CancellationToken ct) =>
-            await Handle(id, service, s => s.CreateChallongeBracketAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/close-registration", async (Guid id, ITournamentService service, CancellationToken ct) =>
+			await Handle(id, service, s => s.CloseRegistrationAsync(id, ct))).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/start", async (Guid id, ITournamentService service, CancellationToken ct) =>
-            await Handle(id, service, s => s.StartAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/challonge-bracket", async (Guid id, ITournamentService service, CancellationToken ct) =>
+			await Handle(id, service, s => s.CreateChallongeBracketAsync(id, ct))).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/finish", async (Guid id, ITournamentService service, CancellationToken ct) =>
-            await Handle(id, service, s => s.FinishAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/start", async (Guid id, ITournamentService service, CancellationToken ct) =>
+			await Handle(id, service, s => s.StartAsync(id, ct))).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/refresh-games", async (Guid id, ITournamentService service, CancellationToken ct) =>
-        {
-            try
-            {
-                await service.RefreshGamesAsync(id, ct);
-                return Results.Ok(new { success = true });
-            }
-            catch (TournamentLifecycleException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        }).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/finish", async (Guid id, ITournamentService service, CancellationToken ct) =>
+			await Handle(id, service, s => s.FinishAsync(id, ct))).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/increment-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
-        {
-            try
-            {
-                await service.IncrementTournamentCountAsync(id, seasonal: false, ct);
-                return Results.Ok(new { success = true });
-            }
-            catch (TournamentLifecycleException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        }).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/refresh-games", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		{
+			await service.RefreshGamesAsync(id, ct);
+			return Results.Ok(new { success = true });
+		}).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/increment-seasonal-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
-        {
-            try
-            {
-                await service.IncrementTournamentCountAsync(id, seasonal: true, ct);
-                return Results.Ok(new { success = true });
-            }
-            catch (TournamentLifecycleException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        }).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/increment-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		{
+			await service.IncrementTournamentCountAsync(id, seasonal: false, ct);
+			return Results.Ok(new { success = true });
+		}).RequireAuthorization("Admin");
 
-        group.MapPost("/{id:guid}/split", async (Guid id, SplitTournamentRequest request, ITournamentService service, CancellationToken ct) =>
-        {
-            try
-            {
-                var result = await service.SplitAsync(id, request, ct);
-                return result is null ? Results.NotFound() : Results.Ok(result);
-            }
-            catch (TournamentLifecycleException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-        }).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/increment-seasonal-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		{
+			await service.IncrementTournamentCountAsync(id, seasonal: true, ct);
+			return Results.Ok(new { success = true });
+		}).RequireAuthorization("Admin");
 
-        group.MapDelete("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
-        {
-            try
-            {
-                return await service.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound();
-            }
-            catch (TournamentLifecycleException ex)
-            {
-                // The tournament row is already gone by the time this can be thrown — surface the
-                // cleanup failure without implying the delete itself failed.
-                return Results.Ok(new { deleted = true, warning = ex.Message });
-            }
-        }).RequireAuthorization("Admin");
-    }
+		group.MapPost("/{id:guid}/split", async (Guid id, SplitTournamentRequest request, ITournamentService service, CancellationToken ct) =>
+		{
+			var result = await service.SplitAsync(id, request, ct);
+			return result is null ? Results.NotFound() : Results.Ok(result);
+		}).RequireAuthorization("Admin");
 
-    private static async Task<IResult> Handle(Guid id, ITournamentService service, Func<ITournamentService, Task<TournamentDto?>> action)
-    {
-        try
-        {
-            var tournament = await action(service);
-            return tournament is null ? Results.NotFound() : Results.Ok(tournament);
-        }
-        catch (TournamentLifecycleException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
-    }
+		group.MapDelete("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		{
+			try
+			{
+				return await service.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound();
+			}
+			catch (TournamentLifecycleException ex)
+			{
+				// The tournament row is already gone by the time this can be thrown — surface the
+				// cleanup failure without implying the delete itself failed.
+				return Results.Ok(new { deleted = true, warning = ex.Message });
+			}
+		}).RequireAuthorization("Admin");
+	}
+
+	private static async Task<IResult> Handle(Guid id, ITournamentService service, Func<ITournamentService, Task<TournamentDto?>> action)
+	{
+		var tournament = await action(service);
+		return tournament is null ? Results.NotFound() : Results.Ok(tournament);
+	}
 }

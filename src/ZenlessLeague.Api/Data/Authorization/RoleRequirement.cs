@@ -5,5 +5,5 @@ namespace ZenlessLeague.Api.Data.Authorization;
 
 public class RoleRequirement(PlayerRole minRole) : IAuthorizationRequirement
 {
-    public PlayerRole MinRole { get; } = minRole;
+	public PlayerRole MinRole { get; } = minRole;
 }

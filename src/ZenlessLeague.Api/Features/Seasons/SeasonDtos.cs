@@ -7,3 +7,7 @@ public record ArchivedPlayerSnapshotDto(string Name, int Elo, bool IsMidConfirme
 public record ArchiveDto(Guid Id, string SeasonName, DateTimeOffset CreatedAt, List<ArchivedPlayerSnapshotDto> Players);
 
 public record BackfillResultDto(int UpdatedPlayers);
+
+public record SeasonTimerDto(DateTimeOffset? EndTimestamp);
+
+public record SetSeasonTimerRequest(DateTimeOffset EndTimestamp);

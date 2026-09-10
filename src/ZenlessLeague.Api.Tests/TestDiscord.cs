@@ -12,15 +12,15 @@ namespace ZenlessLeague.Api.Tests;
 // services no-op before ever touching IDiscordClient in that case.
 public static class TestDiscord
 {
-    public static IDiscordRoleAssignmentService CreateRoleAssignmentService(AppDbContext context) =>
-        new DiscordRoleAssignmentService(new PlayerRepository(context), new FakeDiscordClient(), Options.Create(new DiscordOptions()));
+	public static IDiscordRoleAssignmentService CreateRoleAssignmentService(AppDbContext context) =>
+		new DiscordRoleAssignmentService(new PlayerRepository(context), new FakeDiscordClient(), Options.Create(new DiscordOptions()));
 
-    public static ITournamentDiscordResourcesService CreateTournamentResourcesService(AppDbContext context) =>
-        new TournamentDiscordResourcesService(
-            new TournamentRepository(context),
-            new TournamentRegistrationRepository(context),
-            new TeamRepository(context),
-            new PlayerRepository(context),
-            new FakeDiscordClient(),
-            Options.Create(new DiscordOptions()));
+	public static ITournamentDiscordResourcesService CreateTournamentResourcesService(AppDbContext context, IDiscordClient? discordClient = null) =>
+		new TournamentDiscordResourcesService(
+			new TournamentRepository(context),
+			new TournamentRegistrationRepository(context),
+			new TeamRepository(context),
+			new PlayerRepository(context),
+			discordClient ?? new FakeDiscordClient(),
+			Options.Create(new DiscordOptions()));
 }

@@ -4,11 +4,11 @@ namespace ZenlessLeague.Api.Features.Discord;
 // made configurable here since this deployment isn't tied to that Discord server.
 public class DiscordOptions
 {
-    public string? BotToken { get; set; }
-    public string? GuildId { get; set; }
-    public string? NewbieRoleId { get; set; }
-    public string? MidRoleId { get; set; }
-    public string? HighRoleId { get; set; }
-    public List<string> TournamentStaffRoleIds { get; set; } = [];
-    public string? TournamentCategoryId { get; set; }
+	public string? BotToken { get; set; }
+	public string? GuildId { get; set; }
+	public string? NewbieRoleId { get; set; }
+	public string? MidRoleId { get; set; }
+	public string? HighRoleId { get; set; }
+	public List<string> TournamentStaffRoleIds { get; set; } = [];
+	public string? TournamentCategoryId { get; set; }
 }

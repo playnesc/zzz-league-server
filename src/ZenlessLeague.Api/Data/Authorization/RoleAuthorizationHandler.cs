@@ -9,22 +9,22 @@ namespace ZenlessLeague.Api.Data.Authorization;
 // takes effect immediately without waiting for the client to refresh its Firebase ID token.
 public class RoleAuthorizationHandler(AppDbContext dbContext) : AuthorizationHandler<RoleRequirement>
 {
-    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, RoleRequirement requirement)
-    {
-        var uid = context.User.GetUid();
-        if (uid is null)
-        {
-            return;
-        }
+	protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, RoleRequirement requirement)
+	{
+		var uid = context.User.GetUid();
+		if (uid is null)
+		{
+			return;
+		}
 
-        var role = await dbContext.Players.AsNoTracking()
-            .Where(p => p.Uid == uid)
-            .Select(p => (PlayerRole?)p.Role)
-            .FirstOrDefaultAsync();
+		var role = await dbContext.Players.AsNoTracking()
+			.Where(p => p.Uid == uid)
+			.Select(p => (PlayerRole?)p.Role)
+			.FirstOrDefaultAsync();
 
-        if (role is not null && role.Value >= requirement.MinRole)
-        {
-            context.Succeed(requirement);
-        }
-    }
+		if (role is not null && role.Value >= requirement.MinRole)
+		{
+			context.Succeed(requirement);
+		}
+	}
 }

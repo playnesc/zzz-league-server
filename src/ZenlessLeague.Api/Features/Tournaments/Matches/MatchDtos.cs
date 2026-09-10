@@ -5,22 +5,27 @@ namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 public record SubmitPlayerResultRequest(string ResultP1, string ResultP2, string? ResultScreenshot = null);
 
 public record SetAdminResultRequest(
-    string? ResultP1 = null,
-    string? ResultP2 = null,
-    string? ResultScreenshot = null,
-    string? TechLossPlayerId = null);
+	string? ResultP1 = null,
+	string? ResultP2 = null,
+	string? ResultScreenshot = null,
+	string? TechLossPlayerId = null,
+	Guid? TechLossTeamId = null);
 
 public record TournamentMatchDto(
-    Guid Id,
-    Guid TournamentId,
-    long ChallongeMatchId,
-    string? P1PlayerId,
-    string? P2PlayerId,
-    string State,
-    string? WinnerPlayerId,
-    string? ResultScreenshotUrl,
-    string? ResultP1,
-    string? ResultP2,
-    bool P1ApprovedResult,
-    bool P2ApprovedResult,
-    string? TechLossPlayerId);
+	Guid Id,
+	Guid TournamentId,
+	long ChallongeMatchId,
+	string? P1PlayerId,
+	string? P2PlayerId,
+	Guid? P1TeamId,
+	Guid? P2TeamId,
+	string State,
+	string? WinnerPlayerId,
+	Guid? WinnerTeamId,
+	string? ResultScreenshotUrl,
+	string? ResultP1,
+	string? ResultP2,
+	bool P1ApprovedResult,
+	bool P2ApprovedResult,
+	string? TechLossPlayerId,
+	Guid? TechLossTeamId);
