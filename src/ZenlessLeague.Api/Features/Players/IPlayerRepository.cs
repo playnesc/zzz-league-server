@@ -9,6 +9,7 @@ public interface IPlayerRepository
 	Task<Player?> GetEntityByUidAsync(string uid, CancellationToken ct = default);
 	Task<Player?> GetEntityByIdAsync(Guid id, CancellationToken ct = default);
 	Task<Player?> GetByNameAsync(string name, CancellationToken ct = default);
+	Task<Player?> GetEntityByDiscordIdAsync(string discordId, CancellationToken ct = default);
 	Task<List<Player>> ListAsync(CancellationToken ct = default);
 	Task<Player> CreateAsync(Player player, CancellationToken ct = default);
 	Task<bool> DeleteByUidAsync(string uid, CancellationToken ct = default);

@@ -30,6 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			player.HasIndex(p => p.Uid).IsUnique();
 			player.Property(p => p.Name).IsRequired().HasMaxLength(100);
 			player.HasIndex(p => p.Name).IsUnique();
+			player.HasIndex(p => p.DiscordId).IsUnique().HasFilter("\"DiscordId\" IS NOT NULL");
 
 			player.OwnsOne(p => p.LastRegistrationCache, d =>
 			{

@@ -144,6 +144,10 @@ namespace ZenlessLeague.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DiscordId")
+                        .IsUnique()
+                        .HasFilter("\"DiscordId\" IS NOT NULL");
+
                     b.HasIndex("Name")
                         .IsUnique();
 

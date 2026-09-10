@@ -26,6 +26,9 @@ public class PlayerRepository(AppDbContext context) : IPlayerRepository
 	public Task<Player?> GetByNameAsync(string name, CancellationToken ct = default) =>
 		context.Players.FirstOrDefaultAsync(p => p.Name == name, ct);
 
+	public Task<Player?> GetEntityByDiscordIdAsync(string discordId, CancellationToken ct = default) =>
+		context.Players.FirstOrDefaultAsync(p => p.DiscordId == discordId, ct);
+
 	public Task<List<Player>> ListAsync(CancellationToken ct = default) =>
 		context.Players.OrderBy(p => p.Name).ToListAsync(ct);
 

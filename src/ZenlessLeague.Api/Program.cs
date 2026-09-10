@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Data.Authorization;
+using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
@@ -121,8 +122,16 @@ builder.Services.Configure<DiscordOptions>(builder.Configuration.GetSection("Dis
 builder.Services.AddHttpClient<IDiscordClient, DiscordClient>(client =>
 	client.BaseAddress = new Uri("https://discord.com/api/v10/"));
 
+// Separate client/base address from IDiscordClient above — the OAuth token endpoint is
+// unversioned (discord.com/api/oauth2/token), unlike the bot API's /api/v10/... surface.
+builder.Services.AddHttpClient<IDiscordOAuthClient, DiscordOAuthClient>(client =>
+	client.BaseAddress = new Uri("https://discord.com/api/"));
+
 builder.Services.AddScoped<IDiscordRoleAssignmentService, DiscordRoleAssignmentService>();
 builder.Services.AddScoped<ITournamentDiscordResourcesService, TournamentDiscordResourcesService>();
+
+builder.Services.AddSingleton<IFirebaseCustomTokenSigner, FirebaseCustomTokenSigner>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Genuinely lazy singleton (wrapped in Lazy<T>, not just an AddSingleton factory) — a plain
 // AddSingleton factory still runs as soon as anything holding a FirebaseStorageClient is
@@ -163,6 +172,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapAuthEndpoints();
 app.MapPlayerEndpoints();
 app.MapTeamEndpoints();
 app.MapTournamentEndpoints();
