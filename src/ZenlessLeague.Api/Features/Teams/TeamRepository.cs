@@ -71,3 +71,34 @@ public class TeamRepository(AppDbContext context) : ITeamRepository
 
 	public Task SaveChangesAsync(CancellationToken ct = default) => context.SaveChangesAsync(ct);
 }
+
+public static class TeamRepositoryExtensions
+{
+	// Flattens a mix of solo (PlayerId) and team (TeamId) rows into a flat list of player ids — a
+	// team contributes both its members. Shared by every caller that needs to touch "every
+	// participating player" regardless of whether the row is a solo or team registration/participant
+	// (tournament lifecycle timestamps/played-counts, Discord role assignment).
+	public static async Task<List<Guid>> ExpandToPlayerIdsAsync(
+		this ITeamRepository teamRepository, IEnumerable<(Guid? PlayerId, Guid? TeamId)> items, CancellationToken ct = default)
+	{
+		var playerIds = new List<Guid>();
+		foreach (var (playerId, teamId) in items)
+		{
+			if (playerId is Guid pid)
+			{
+				playerIds.Add(pid);
+			}
+			else if (teamId is Guid tid)
+			{
+				var team = await teamRepository.GetByIdAsync(tid, ct);
+				if (team is not null)
+				{
+					playerIds.Add(team.Player1Id);
+					playerIds.Add(team.Player2Id);
+				}
+			}
+		}
+
+		return playerIds;
+	}
+}

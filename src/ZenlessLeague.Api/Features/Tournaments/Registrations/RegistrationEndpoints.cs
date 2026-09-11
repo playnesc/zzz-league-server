@@ -11,8 +11,15 @@ public static class RegistrationEndpoints
 		var group = app.MapGroup("/api/tournaments/{id:guid}/registrations");
 
 		group.MapPost("/solo", async (
-			Guid id, SoloRegistrationRequest request, ITournamentRegistrationService service, CancellationToken ct) =>
+			Guid id, SoloRegistrationRequest request, HttpContext http, IAuthorizationService authorization,
+			ITournamentRegistrationService service, CancellationToken ct) =>
 		{
+			var uid = http.User.GetUid();
+			if (uid != request.PlayerId && !(await authorization.AuthorizeAsync(http.User, "Admin")).Succeeded)
+			{
+				return Results.Forbid();
+			}
+
 			var registration = await service.RegisterSoloAsync(id, request, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
 		}).RequireAuthorization();
@@ -38,16 +45,18 @@ public static class RegistrationEndpoints
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
 		}).RequireAuthorization();
 
-		group.MapGet("/", async (Guid id, ITournamentRegistrationService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(id, ct)))
-			.RequireAuthorization();
+		// Public — anonymous visitors can browse participants too. callerUid (from the token if any
+		// was sent; null for anonymous) is what ListAsync/GetAsync use to decide which
+		// registrations' sensitive fields (GameUid/PrizeUid/PrizeAsMoney) come through unredacted.
+		group.MapGet("/", async (Guid id, HttpContext http, ITournamentRegistrationService service, CancellationToken ct) =>
+			Results.Ok(await service.ListAsync(id, http.User.GetUid(), ct)));
 
 		group.MapGet("/{registrationId:guid}", async (
-			Guid id, Guid registrationId, ITournamentRegistrationService service, CancellationToken ct) =>
+			Guid id, Guid registrationId, HttpContext http, ITournamentRegistrationService service, CancellationToken ct) =>
 		{
-			var registration = await service.GetAsync(id, registrationId, ct);
+			var registration = await service.GetAsync(id, registrationId, http.User.GetUid(), ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		}).RequireAuthorization();
+		});
 
 		group.MapPost("/admin-add", async (
 			Guid id, AdminAddRegistrationRequest request, ITournamentRegistrationService service, CancellationToken ct) =>

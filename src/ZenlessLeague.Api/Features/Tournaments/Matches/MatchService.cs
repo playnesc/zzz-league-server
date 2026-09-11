@@ -57,20 +57,7 @@ public class MatchService(
 		var challongeToTeamId = participants.Where(p => p.TeamId is not null).ToDictionary(p => p.ChallongeParticipantId, p => p.TeamId!.Value);
 
 		var matches = await challongeClient.GetMatchesAsync(tournament.ChallongeTournamentId, ct);
-
-		long? resetChallongeMatchId = null;
-		if (tournament.BracketType == "double elimination" && matches.Count > 0)
-		{
-			var maxRound = matches.Max(m => m.Round);
-			var finalRoundMatches = matches
-				.Where(m => m.Round == maxRound)
-				.OrderBy(m => m.SuggestedPlayOrder)
-				.ToList();
-			if (finalRoundMatches.Count > 1)
-			{
-				resetChallongeMatchId = long.Parse(finalRoundMatches[^1].ChallongeMatchId);
-			}
-		}
+		var resetChallongeMatchId = ResolveResetChallongeMatchId(tournament.BracketType, matches);
 
 		var allMatchesPlayed = true;
 
@@ -89,44 +76,9 @@ public class MatchService(
 				continue;
 			}
 
-			var winnerPlayerId = ResolvePlayerId(m.WinnerChallongeParticipantId, challongeToPlayerId);
-			var p1PlayerId = ResolvePlayerId(m.P1ChallongeParticipantId, challongeToPlayerId);
-			var p2PlayerId = ResolvePlayerId(m.P2ChallongeParticipantId, challongeToPlayerId);
-			var winnerTeamId = ResolveTeamId(m.WinnerChallongeParticipantId, challongeToTeamId);
-			var p1TeamId = ResolveTeamId(m.P1ChallongeParticipantId, challongeToTeamId);
-			var p2TeamId = ResolveTeamId(m.P2ChallongeParticipantId, challongeToTeamId);
-
-			var existing = await matchRepository.GetByChallongeMatchIdAsync(tournamentId, challongeMatchId, ct);
-			if (existing is null)
-			{
-				await matchRepository.CreateAsync(new TournamentMatch
-				{
-					Id = Guid.NewGuid(),
-					TournamentId = tournamentId,
-					ChallongeMatchId = challongeMatchId,
-					State = m.State,
-					WinnerPlayerId = winnerPlayerId,
-					WinnerTeamId = winnerTeamId,
-					P1PlayerId = p1PlayerId,
-					P2PlayerId = p2PlayerId,
-					P1TeamId = p1TeamId,
-					P2TeamId = p2TeamId,
-				}, ct);
-			}
-			else
-			{
-				// Only the Challonge-sourced fields are overwritten here — result/approval/history
-				// fields belong to SubmitPlayerResultAsync/SetAdminResultAsync, not this sync.
-				existing.State = m.State;
-				existing.WinnerPlayerId = winnerPlayerId;
-				existing.WinnerTeamId = winnerTeamId;
-				existing.P1PlayerId = p1PlayerId;
-				existing.P2PlayerId = p2PlayerId;
-				existing.P1TeamId = p1TeamId;
-				existing.P2TeamId = p2TeamId;
-			}
-
-			if (winnerPlayerId is null && winnerTeamId is null)
+			var hasWinner = await UpsertMatchFromChallongeAsync(
+				tournamentId, challongeMatchId, m, challongeToPlayerId, challongeToTeamId, ct);
+			if (!hasWinner)
 			{
 				allMatchesPlayed = false;
 			}
@@ -417,6 +369,72 @@ public class MatchService(
 
 		var team = await teamRepository.GetByIdAsync(teamId.Value, ct);
 		return team is not null && (team.Player1Id == playerId || team.Player2Id == playerId);
+	}
+
+	// Double-elimination brackets carry a "grand finals reset" placeholder match for the case where
+	// the loser's-bracket finalist wins the first grand-finals game — Challonge always creates it,
+	// but it only actually gets played if that upset happens. Until then it's a dangling match with
+	// no real participants, so it's identified here and skipped/removed rather than synced as real.
+	private static long? ResolveResetChallongeMatchId(string? bracketType, List<ChallongeMatchResult> matches)
+	{
+		if (bracketType != "double elimination" || matches.Count == 0)
+		{
+			return null;
+		}
+
+		var maxRound = matches.Max(m => m.Round);
+		var finalRoundMatches = matches
+			.Where(m => m.Round == maxRound)
+			.OrderBy(m => m.SuggestedPlayOrder)
+			.ToList();
+
+		return finalRoundMatches.Count > 1 ? long.Parse(finalRoundMatches[^1].ChallongeMatchId) : null;
+	}
+
+	// Creates or updates the local TournamentMatch row for one Challonge match. Only the
+	// Challonge-sourced fields are ever written here — result/approval/history fields belong to
+	// SubmitPlayerResultAsync/SetAdminResultAsync, not this sync. Returns whether the match has a
+	// winner yet (used by the caller to decide whether the whole tournament is done syncing).
+	private async Task<bool> UpsertMatchFromChallongeAsync(
+		Guid tournamentId, long challongeMatchId, ChallongeMatchResult m,
+		Dictionary<string, Guid> challongeToPlayerId, Dictionary<string, Guid> challongeToTeamId, CancellationToken ct)
+	{
+		var winnerPlayerId = ResolvePlayerId(m.WinnerChallongeParticipantId, challongeToPlayerId);
+		var p1PlayerId = ResolvePlayerId(m.P1ChallongeParticipantId, challongeToPlayerId);
+		var p2PlayerId = ResolvePlayerId(m.P2ChallongeParticipantId, challongeToPlayerId);
+		var winnerTeamId = ResolveTeamId(m.WinnerChallongeParticipantId, challongeToTeamId);
+		var p1TeamId = ResolveTeamId(m.P1ChallongeParticipantId, challongeToTeamId);
+		var p2TeamId = ResolveTeamId(m.P2ChallongeParticipantId, challongeToTeamId);
+
+		var existing = await matchRepository.GetByChallongeMatchIdAsync(tournamentId, challongeMatchId, ct);
+		if (existing is null)
+		{
+			await matchRepository.CreateAsync(new TournamentMatch
+			{
+				Id = Guid.NewGuid(),
+				TournamentId = tournamentId,
+				ChallongeMatchId = challongeMatchId,
+				State = m.State,
+				WinnerPlayerId = winnerPlayerId,
+				WinnerTeamId = winnerTeamId,
+				P1PlayerId = p1PlayerId,
+				P2PlayerId = p2PlayerId,
+				P1TeamId = p1TeamId,
+				P2TeamId = p2TeamId,
+			}, ct);
+		}
+		else
+		{
+			existing.State = m.State;
+			existing.WinnerPlayerId = winnerPlayerId;
+			existing.WinnerTeamId = winnerTeamId;
+			existing.P1PlayerId = p1PlayerId;
+			existing.P2PlayerId = p2PlayerId;
+			existing.P1TeamId = p1TeamId;
+			existing.P2TeamId = p2TeamId;
+		}
+
+		return winnerPlayerId is not null || winnerTeamId is not null;
 	}
 
 	private static Guid? ResolvePlayerId(string? challongeParticipantId, Dictionary<string, Guid> challongeToPlayerId) =>

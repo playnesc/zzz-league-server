@@ -10,8 +10,12 @@ public interface ITournamentRegistrationService
 {
 	Task<TournamentRegistrationDto?> RegisterSoloAsync(Guid tournamentId, SoloRegistrationRequest request, CancellationToken ct = default);
 	Task<TournamentRegistrationDto?> RegisterTeamAsync(Guid tournamentId, TeamRegistrationRequest request, CancellationToken ct = default);
-	Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, CancellationToken ct = default);
-	Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default);
+	// Public — anonymous visitors can browse a tournament's participants. callerUid (if any)
+	// determines which registrations' GameUid/PrizeUid/PrizeAsMoney come through unredacted: a
+	// moderator+ sees everyone's, everyone else only sees their own (an anonymous caller sees
+	// none of theirs, having none).
+	Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, string? callerUid = null, CancellationToken ct = default);
+	Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, string? callerUid = null, CancellationToken ct = default);
 
 	Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default);
 	Task<TournamentRegistrationDto?> AdminAddTeamAsync(Guid tournamentId, Guid teamId, CancellationToken ct = default);
@@ -77,7 +81,7 @@ public class TournamentRegistrationService(
 
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
 
-		return ToDto(registration, player.Uid);
+		return ToDto(registration, player.Uid, includeSensitive: true);
 	}
 
 	public async Task<TournamentRegistrationDto?> RegisterTeamAsync(Guid tournamentId, TeamRegistrationRequest request, CancellationToken ct = default)
@@ -98,16 +102,18 @@ public class TournamentRegistrationService(
 		var team = await teamRepository.GetByIdAsync(request.TeamId, ct)
 			?? throw new TournamentValidationException($"Team '{request.TeamId}' does not exist.");
 
-		if (await playerRepository.GetByIdAsync(team.Player1Id, ct) is null)
-		{
-			throw new TournamentValidationException($"Player '{team.Player1Id}' does not exist.");
-		}
-		if (await playerRepository.GetByIdAsync(team.Player2Id, ct) is null)
-		{
-			throw new TournamentValidationException($"Player '{team.Player2Id}' does not exist.");
-		}
+		var teamPlayer1 = await playerRepository.GetEntityByIdAsync(team.Player1Id, ct)
+			?? throw new TournamentValidationException($"Player '{team.Player1Id}' does not exist.");
+		var teamPlayer2 = await playerRepository.GetEntityByIdAsync(team.Player2Id, ct)
+			?? throw new TournamentValidationException($"Player '{team.Player2Id}' does not exist.");
+		EnsureTierEligible(tournament, teamPlayer1);
+		EnsureTierEligible(tournament, teamPlayer2);
 
 		var registration = await registrationRepository.FindExistingAsync(tournamentId, null, request.TeamId, ct);
+		if (registration is null)
+		{
+			await EnsureNeitherMemberRegisteredElsewhereAsync(tournamentId, team, ct);
+		}
 
 		var player1Details = await BuildDetailsAsync(
 			tournamentId, team.Player1Id, request.Player1, registration?.Player1Details, null, ct);
@@ -137,19 +143,23 @@ public class TournamentRegistrationService(
 		}
 
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
-		return ToDto(registration, playerUid: null);
+		return ToDto(registration, playerUid: null, includeSensitive: true);
 	}
 
-	public async Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, CancellationToken ct = default)
+	public async Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, string? callerUid = null, CancellationToken ct = default)
 	{
 		var registrations = await registrationRepository.ListByTournamentAsync(tournamentId, ct);
 		var uidsById = await playerRepository.GetUidsByIdsAsync(
 			registrations.Where(r => r.PlayerId is not null).Select(r => r.PlayerId!.Value), ct);
 
-		return registrations.Select(r => ToDto(r, r.PlayerId is Guid pid ? uidsById.GetValueOrDefault(pid) : null)).ToList();
+		var (isModeratorOrAbove, ownRegistrationId) = await ResolveSensitiveFieldAccessAsync(tournamentId, callerUid, ct);
+
+		return registrations.Select(r => ToDto(
+			r, r.PlayerId is Guid pid ? uidsById.GetValueOrDefault(pid) : null,
+			includeSensitive: isModeratorOrAbove || r.Id == ownRegistrationId)).ToList();
 	}
 
-	public async Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default)
+	public async Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, string? callerUid = null, CancellationToken ct = default)
 	{
 		var registration = await registrationRepository.GetByIdAsync(tournamentId, id, ct);
 		if (registration is null)
@@ -158,7 +168,31 @@ public class TournamentRegistrationService(
 		}
 
 		var playerUid = registration.PlayerId is Guid pid ? (await playerRepository.GetByIdAsync(pid, ct))?.Uid : null;
-		return ToDto(registration, playerUid);
+		var (isModeratorOrAbove, ownRegistrationId) = await ResolveSensitiveFieldAccessAsync(tournamentId, callerUid, ct);
+		return ToDto(registration, playerUid, includeSensitive: isModeratorOrAbove || registration.Id == ownRegistrationId);
+	}
+
+	// GameUid/PrizeUid/PrizeAsMoney are the only fields ListAsync/GetAsync ever redact — every
+	// other caller of ToDto (self-registration, admin actions) always passes includeSensitive:
+	// true since those are already legitimately scoped to the registrant or an admin.
+	private async Task<(bool IsModeratorOrAbove, Guid? OwnRegistrationId)> ResolveSensitiveFieldAccessAsync(
+		Guid tournamentId, string? callerUid, CancellationToken ct)
+	{
+		if (callerUid is null)
+		{
+			return (false, null);
+		}
+
+		var caller = await playerRepository.GetEntityByUidAsync(callerUid, ct);
+		if (caller is null)
+		{
+			return (false, null);
+		}
+
+		var ownRegistration = await registrationRepository.FindExistingAsync(tournamentId, caller.Id, null, ct)
+			?? await registrationRepository.FindByPlayerTeamMembershipAsync(tournamentId, caller.Id, ct);
+
+		return (caller.Role >= PlayerRole.Moderator, ownRegistration?.Id);
 	}
 
 	public async Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default)
@@ -200,7 +234,7 @@ public class TournamentRegistrationService(
 
 		await registrationRepository.CreateAsync(registration, ct);
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
-		return ToDto(registration, player.Uid);
+		return ToDto(registration, player.Uid, includeSensitive: true);
 	}
 
 	public async Task<TournamentRegistrationDto?> AdminAddTeamAsync(Guid tournamentId, Guid teamId, CancellationToken ct = default)
@@ -233,6 +267,8 @@ public class TournamentRegistrationService(
 			throw new TournamentValidationException("Team is already registered.");
 		}
 
+		await EnsureNeitherMemberRegisteredElsewhereAsync(tournamentId, team, ct);
+
 		var registration = new TournamentRegistration
 		{
 			Id = Guid.NewGuid(),
@@ -247,7 +283,25 @@ public class TournamentRegistrationService(
 
 		await registrationRepository.CreateAsync(registration, ct);
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
-		return ToDto(registration, playerUid: null);
+		return ToDto(registration, playerUid: null, includeSensitive: true);
+	}
+
+	// A player can only be on one registered team per tournament — check both members against
+	// every OTHER team's registration here (not just an exact-team lookup, which FindExistingAsync
+	// already covers separately for "is this same team already registered").
+	private async Task EnsureNeitherMemberRegisteredElsewhereAsync(Guid tournamentId, Team team, CancellationToken ct)
+	{
+		var player1Conflict = await registrationRepository.FindByPlayerTeamMembershipAsync(tournamentId, team.Player1Id, ct);
+		if (player1Conflict is not null)
+		{
+			throw new TournamentValidationException("One of this team's players is already registered with a different team.");
+		}
+
+		var player2Conflict = await registrationRepository.FindByPlayerTeamMembershipAsync(tournamentId, team.Player2Id, ct);
+		if (player2Conflict is not null)
+		{
+			throw new TournamentValidationException("One of this team's players is already registered with a different team.");
+		}
 	}
 
 	// Admin-added registrations skip the usual roster/screenshot requirements (BuildDetailsAsync)
@@ -276,7 +330,7 @@ public class TournamentRegistrationService(
 		await notifier.RegistrationChangedAsync(tournamentId, registrationId, ct);
 
 		var playerUid = registration.PlayerId is Guid pid ? (await playerRepository.GetByIdAsync(pid, ct))?.Uid : null;
-		return ToDto(registration, playerUid);
+		return ToDto(registration, playerUid, includeSensitive: true);
 	}
 
 	public async Task<bool?> CancelAsync(Guid tournamentId, string callerPlayerId, CancellationToken ct = default)
@@ -293,9 +347,13 @@ public class TournamentRegistrationService(
 		}
 
 		var caller = await playerRepository.GetEntityByUidAsync(callerPlayerId, ct);
+		// Solo registrations are keyed by PlayerId directly; a team registration has neither
+		// member's id on the row itself, so either member canceling has to be resolved through
+		// their team membership instead.
 		var registration = caller is null
 			? null
-			: await registrationRepository.FindExistingAsync(tournamentId, caller.Id, null, ct);
+			: await registrationRepository.FindExistingAsync(tournamentId, caller.Id, null, ct)
+				?? await registrationRepository.FindByPlayerTeamMembershipAsync(tournamentId, caller.Id, ct);
 		if (registration is null)
 		{
 			return false;
@@ -369,13 +427,16 @@ public class TournamentRegistrationService(
 		};
 	}
 
-	private static PlayerRegistrationDetailsDto ToDetailsDto(PlayerRegistrationDetails d) =>
-		new(d.GameUid, d.PrizeAsMoney, d.PrizeUid, d.DarteNickname, d.DartePresetName, d.RosterName, d.RosterScreenshotUrl, d.HoyolabScreenshotUrl);
+	private static PlayerRegistrationDetailsDto ToDetailsDto(PlayerRegistrationDetails d, bool includeSensitive) => new(
+		includeSensitive ? d.GameUid : "",
+		includeSensitive && d.PrizeAsMoney,
+		includeSensitive ? d.PrizeUid : null,
+		d.DarteNickname, d.DartePresetName, d.RosterName, d.RosterScreenshotUrl, d.HoyolabScreenshotUrl);
 
-	private static TournamentRegistrationDto ToDto(TournamentRegistration r, string? playerUid) => new(
+	private static TournamentRegistrationDto ToDto(TournamentRegistration r, string? playerUid, bool includeSensitive) => new(
 		r.Id, r.TournamentId, r.PlayerId is not null ? TournamentRegistrationType.Solo : TournamentRegistrationType.Team,
 		playerUid, r.TeamId,
-		ToDetailsDto(r.Player1Details),
-		r.Player2Details is null ? null : ToDetailsDto(r.Player2Details),
+		ToDetailsDto(r.Player1Details, includeSensitive),
+		r.Player2Details is null ? null : ToDetailsDto(r.Player2Details, includeSensitive),
 		r.Approved, r.RegisteredAt, r.UpdatedAt);
 }

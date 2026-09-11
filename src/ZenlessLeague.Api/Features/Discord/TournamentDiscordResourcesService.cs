@@ -114,24 +114,7 @@ public class TournamentDiscordResourcesService(
 	private async Task<List<string>> GetApprovedDiscordIdsAsync(Guid tournamentId, CancellationToken ct)
 	{
 		var approved = (await registrationRepository.ListByTournamentAsync(tournamentId, ct)).Where(r => r.Approved).ToList();
-		var playerIds = new List<Guid>();
-
-		foreach (var registration in approved)
-		{
-			if (registration.PlayerId is Guid playerId)
-			{
-				playerIds.Add(playerId);
-			}
-			else if (registration.TeamId is Guid teamId)
-			{
-				var team = await teamRepository.GetByIdAsync(teamId, ct);
-				if (team is not null)
-				{
-					playerIds.Add(team.Player1Id);
-					playerIds.Add(team.Player2Id);
-				}
-			}
-		}
+		var playerIds = await teamRepository.ExpandToPlayerIdsAsync(approved.Select(r => (r.PlayerId, r.TeamId)), ct);
 
 		var discordIds = new List<string>();
 		foreach (var id in playerIds.Distinct())

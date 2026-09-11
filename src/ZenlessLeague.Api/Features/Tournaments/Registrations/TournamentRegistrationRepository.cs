@@ -7,6 +7,12 @@ public interface ITournamentRegistrationRepository
 {
 	Task<TournamentRegistration?> FindExistingAsync(Guid tournamentId, Guid? playerId, Guid? teamId, CancellationToken ct = default);
 
+	// Finds the team registration (if any) whose team this player belongs to, as creator or
+	// second member — unlike FindExistingAsync, this doesn't require knowing the TeamId upfront,
+	// so it's how a team registration gets found from just a player id (self-cancel by either
+	// member, "is this player already on a different registered team" checks).
+	Task<TournamentRegistration?> FindByPlayerTeamMembershipAsync(Guid tournamentId, Guid playerId, CancellationToken ct = default);
+
 	// Most recently updated solo registration for this player, across ALL tournaments — used to
 	// prefill a new registration's roster/Hoyolab screenshots so returning players don't need to
 	// re-upload them every time (see TournamentRegistrationService.BuildDetailsAsync).
@@ -24,6 +30,12 @@ public class TournamentRegistrationRepository(AppDbContext context) : ITournamen
 		context.TournamentRegistrations.FirstOrDefaultAsync(r =>
 			r.TournamentId == tournamentId &&
 			(playerId != null ? r.PlayerId == playerId : r.TeamId == teamId), ct);
+
+	public Task<TournamentRegistration?> FindByPlayerTeamMembershipAsync(Guid tournamentId, Guid playerId, CancellationToken ct = default) =>
+		(from r in context.TournamentRegistrations
+		 join t in context.Teams on r.TeamId equals t.Id
+		 where r.TournamentId == tournamentId && (t.Player1Id == playerId || t.Player2Id == playerId)
+		 select r).FirstOrDefaultAsync(ct);
 
 	public async Task<TournamentRegistration> CreateAsync(TournamentRegistration registration, CancellationToken ct = default)
 	{

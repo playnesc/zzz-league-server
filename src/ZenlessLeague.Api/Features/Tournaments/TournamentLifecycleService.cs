@@ -192,7 +192,7 @@ public class TournamentLifecycleService(
 
 		var now = DateTimeOffset.UtcNow;
 		var participants = await challongeParticipantRepository.ListByTournamentAsync(id, ct);
-		foreach (var playerId in (await ExpandToPlayerIdsAsync(participants, ct)).Distinct())
+		foreach (var playerId in (await teamRepository.ExpandToPlayerIdsAsync(participants.Select(p => (p.PlayerId, p.TeamId)), ct)).Distinct())
 		{
 			var player = await playerRepository.GetEntityByIdAsync(playerId, ct);
 			if (player is not null)
@@ -293,9 +293,17 @@ public class TournamentLifecycleService(
 
 		var isSeasonal = (tournament.OverrideEloChange ?? -1) == -1;
 
-		// PlayedTournamentCount/SeasonalPlayedTournamentCount — every participating player, win
-		// or lose (both members of a team, for team tournaments).
-		foreach (var playerId in (await ExpandToPlayerIdsAsync(ourParticipants!, ct)).Distinct())
+		await IncrementPlayedCountsAsync(ourParticipants!, isSeasonal, ct);
+		await ApplyPrizeEloBonusAsync(challongeParticipants!, ourParticipantsByChallongeId!, isTeamTournament, isSeasonal, ct);
+
+		return await ToDtoAsync(tournament, ct);
+	}
+
+	// PlayedTournamentCount/SeasonalPlayedTournamentCount — every participating player, win or
+	// lose (both members of a team, for team tournaments).
+	private async Task IncrementPlayedCountsAsync(List<TournamentChallongeParticipant> participants, bool isSeasonal, CancellationToken ct)
+	{
+		foreach (var playerId in (await teamRepository.ExpandToPlayerIdsAsync(participants.Select(p => (p.PlayerId, p.TeamId)), ct)).Distinct())
 		{
 			var player = await playerRepository.GetEntityByIdAsync(playerId, ct);
 			if (player is null)
@@ -311,26 +319,33 @@ public class TournamentLifecycleService(
 		}
 
 		await playerRepository.SaveChangesAsync(ct);
+	}
 
+	// Flat Elo bonus for top-3 (seasonal) / top-2 (non-seasonal) finishers. Both team members get
+	// the same flat bonus applied independently — same "no combined formula, just extend the
+	// existing per-player logic to both members" spirit as the Elo-averaging approach used for
+	// team match results.
+	private async Task ApplyPrizeEloBonusAsync(
+		List<ChallongeParticipantResult> challongeParticipants,
+		Dictionary<string, TournamentChallongeParticipant> ourParticipantsByChallongeId,
+		bool isTeamTournament, bool isSeasonal, CancellationToken ct)
+	{
 		var prizeEloBonus = isSeasonal
 			? new Dictionary<int, int> { [1] = 40, [2] = 20, [3] = 10 }
 			: new Dictionary<int, int> { [1] = 15, [2] = 10 };
 
-		foreach (var participant in challongeParticipants!)
+		foreach (var participant in challongeParticipants)
 		{
 			if (participant.FinalRank is not int rank || !prizeEloBonus.TryGetValue(rank, out var bonus))
 			{
 				continue;
 			}
 
-			if (!ourParticipantsByChallongeId!.TryGetValue(participant.ChallongeParticipantId, out var ourParticipant))
+			if (!ourParticipantsByChallongeId.TryGetValue(participant.ChallongeParticipantId, out var ourParticipant))
 			{
 				continue;
 			}
 
-			// Both team members get the same flat bonus applied independently — same "no combined
-			// formula, just extend the existing per-player logic to both members" spirit as the
-			// Elo-averaging approach used for team match results.
 			var bonusPlayerIds = isTeamTournament
 				? (ourParticipant.TeamId is Guid teamId ? await ExpandTeamAsync(teamId, ct) : [])
 				: (ourParticipant.PlayerId is Guid pid ? [pid] : []);
@@ -346,8 +361,6 @@ public class TournamentLifecycleService(
 				await historyService.SetPlayerEloAsync(player.Uid, player.Elo + bonus, ct);
 			}
 		}
-
-		return await ToDtoAsync(tournament, ct);
 	}
 
 	public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
@@ -540,23 +553,7 @@ public class TournamentLifecycleService(
 			throw new TournamentLifecycleException("No approved participants found for this tournament.");
 		}
 
-		var playerIds = new List<Guid>();
-		foreach (var registration in approved)
-		{
-			if (registration.PlayerId is Guid playerId)
-			{
-				playerIds.Add(playerId);
-			}
-			else if (registration.TeamId is Guid teamId)
-			{
-				var team = await teamRepository.GetByIdAsync(teamId, ct);
-				if (team is not null)
-				{
-					playerIds.Add(team.Player1Id);
-					playerIds.Add(team.Player2Id);
-				}
-			}
-		}
+		var playerIds = await teamRepository.ExpandToPlayerIdsAsync(approved.Select(r => (r.PlayerId, r.TeamId)), ct);
 
 		foreach (var playerId in playerIds.Distinct())
 		{
@@ -574,27 +571,6 @@ public class TournamentLifecycleService(
 		}
 
 		await playerRepository.SaveChangesAsync(ct);
-	}
-
-	// Flattens a mix of solo (PlayerId) and team (TeamId) Challonge participants into a flat list
-	// of player ids — a team contributes both its members. Used anywhere that needs to touch
-	// "every participating player" regardless of tournament type (timestamps, played-count).
-	private async Task<List<Guid>> ExpandToPlayerIdsAsync(IEnumerable<TournamentChallongeParticipant> participants, CancellationToken ct)
-	{
-		var playerIds = new List<Guid>();
-		foreach (var p in participants)
-		{
-			if (p.PlayerId is Guid playerId)
-			{
-				playerIds.Add(playerId);
-			}
-			else if (p.TeamId is Guid teamId)
-			{
-				playerIds.AddRange(await ExpandTeamAsync(teamId, ct));
-			}
-		}
-
-		return playerIds;
 	}
 
 	private async Task<List<Guid>> ExpandTeamAsync(Guid teamId, CancellationToken ct)
