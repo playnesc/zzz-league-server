@@ -10,8 +10,7 @@ public record DiscordOAuthUser(string Id, string Username);
 
 public interface IDiscordOAuthClient
 {
-	// Exchanges an OAuth2 authorization code for the authenticated Discord user's identity. Ports
-	// functions/discord/linkDiscord.js's token exchange + discordClient.js's getDiscordUser — used
+	// Exchanges an OAuth2 authorization code for the authenticated Discord user's identity — used
 	// for both login (Features/Auth) and account linking. Kept separate from the bot-token
 	// IDiscordClient since this authenticates as the end user, not the bot.
 	Task<DiscordOAuthUser> ExchangeCodeAsync(string code, string redirectUri, CancellationToken ct = default);

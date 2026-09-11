@@ -5,9 +5,6 @@ namespace ZenlessLeague.Api.Features.Discord;
 
 public interface IDiscordRoleAssignmentService
 {
-	// Direct port of functions/discord/assignDiscordRole.js — computes the correct tier role
-	// from confirmation flags and adds it while removing the other two. No-ops if the player
-	// has no linked Discord account.
 	Task AssignRoleForPlayerAsync(string uid, CancellationToken ct = default);
 }
 

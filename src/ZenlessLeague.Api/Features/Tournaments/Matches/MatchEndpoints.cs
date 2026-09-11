@@ -17,7 +17,6 @@ public static class MatchEndpoints
 			return match is null ? Results.NotFound() : Results.Ok(match);
 		});
 
-		// Port of functions/user/approveResult.js — participant self-report/approve.
 		group.MapPost("/{matchId:guid}/result", async (
 			Guid id, Guid matchId, SubmitPlayerResultRequest request, HttpContext http, IMatchService service, CancellationToken ct) =>
 		{
@@ -31,7 +30,6 @@ public static class MatchEndpoints
 			return match is null ? Results.NotFound() : Results.Ok(match);
 		}).RequireAuthorization();
 
-		// Port of functions/admin/tournament/adminSetMatchResult.js — moderator/admin override or tech-loss.
 		group.MapPost("/{matchId:guid}/admin-result", async (
 			Guid id, Guid matchId, SetAdminResultRequest request, IMatchService service, CancellationToken ct) =>
 		{

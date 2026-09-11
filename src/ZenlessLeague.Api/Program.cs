@@ -101,6 +101,7 @@ builder.Services.AddScoped<ITeamService, TeamService>();
 
 builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
 builder.Services.AddScoped<ITournamentService, TournamentService>();
+builder.Services.AddScoped<ITournamentLifecycleService, TournamentLifecycleService>();
 builder.Services.AddScoped<ITournamentRegistrationRepository, TournamentRegistrationRepository>();
 builder.Services.AddScoped<ITournamentRegistrationService, TournamentRegistrationService>();
 

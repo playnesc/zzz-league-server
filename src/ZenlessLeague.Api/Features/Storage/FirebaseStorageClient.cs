@@ -16,9 +16,9 @@ public class FirebaseStorageException(string message) : ValidationApiException(m
 
 public interface IFirebaseStorageClient
 {
-	// Direct port of functions/utils/uploadImage.js: decodes a data-url base64 image, enforces
-	// the 3MB cap, deletes any previously uploaded file(s) under the same prefix (so re-uploading
-	// with a different extension doesn't leave orphans), uploads, and returns the public URL.
+	// Decodes a data-url base64 image, enforces the 3MB cap, deletes any previously uploaded
+	// file(s) under the same prefix (so re-uploading with a different extension doesn't leave
+	// orphans), uploads, and returns the public URL.
 	Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default);
 
 	// Deletes any uploaded file(s) under the given prefix without replacing them — used when the
@@ -26,9 +26,8 @@ public interface IFirebaseStorageClient
 	Task DeleteImageAsync(string pathPrefix, CancellationToken ct = default);
 }
 
-// REST client for the Firebase/Google Cloud Storage JSON API, using the same GoogleCredential
-// bearer-token pattern the old FirebasePlayerRepository used for RTDB. Verified against the real
-// zzz-league.firebasestorage.app bucket.
+// REST client for the Firebase/Google Cloud Storage JSON API, using a GoogleCredential
+// bearer-token. Verified against the real zzz-league.firebasestorage.app bucket.
 public partial class FirebaseStorageClient(HttpClient httpClient, Lazy<GoogleCredential> credential, IOptions<FirebaseStorageOptions> options) : IFirebaseStorageClient
 {
 	private const long MaxImageSizeBytes = 3 * 1024 * 1024;
@@ -109,8 +108,6 @@ public partial class FirebaseStorageClient(HttpClient httpClient, Lazy<GoogleCre
 	{
 		var token = await GetAccessTokenAsync(ct);
 
-		// predefinedAcl=publicRead folds legacy's separate file.save() + file.makePublic() calls
-		// into the single insert request the JSON API supports.
 		var url = $"https://storage.googleapis.com/upload/storage/v1/b/{Uri.EscapeDataString(bucket)}/o" +
 				  $"?uploadType=media&name={Uri.EscapeDataString(filePath)}&predefinedAcl=publicRead";
 

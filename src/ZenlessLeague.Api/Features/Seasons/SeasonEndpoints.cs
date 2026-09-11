@@ -9,13 +9,13 @@ public static class SeasonEndpoints
 		seasons.MapPost("/finalize", async (ISeasonService service, CancellationToken ct) =>
 		{
 			await service.FinalizeSeasonAsync(ct);
-			return Results.Ok(new { success = true });
+			return Results.NoContent();
 		}).RequireAuthorization("Admin");
 
 		seasons.MapPost("/reset", async (ResetSeasonRequest request, ISeasonService service, CancellationToken ct) =>
 		{
 			await service.ResetSeasonAsync(request.SeasonName, ct);
-			return Results.Ok(new { success = true });
+			return Results.NoContent();
 		}).RequireAuthorization("Admin");
 
 		seasons.MapPost("/backfill-last-played-timestamps", async (ISeasonService service, CancellationToken ct) =>

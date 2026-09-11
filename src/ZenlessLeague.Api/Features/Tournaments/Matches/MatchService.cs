@@ -10,15 +10,13 @@ namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
 public interface IMatchService
 {
-	// Port of functions/utils/updateTournamentGames.js — pulls match state back from Challonge,
-	// including the double-elimination "reset" grand-finals placeholder handling, and flips the
-	// tournament to AwaitingReview once every synced match has a winner.
+	// Pulls match state back from Challonge, including the double-elimination "reset"
+	// grand-finals placeholder handling, and flips the tournament to AwaitingReview once every
+	// synced match has a winner.
 	Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default);
 
-	// Port of functions/user/approveResult.js.
 	Task<TournamentMatchDto?> SubmitPlayerResultAsync(Guid tournamentId, Guid matchId, string callerPlayerId, SubmitPlayerResultRequest request, CancellationToken ct = default);
 
-	// Port of functions/admin/tournament/adminSetMatchResult.js.
 	Task<TournamentMatchDto?> SetAdminResultAsync(Guid tournamentId, Guid matchId, SetAdminResultRequest request, CancellationToken ct = default);
 
 	Task<List<TournamentMatchDto>> ListAsync(Guid tournamentId, CancellationToken ct = default);
@@ -358,24 +356,33 @@ public class MatchService(
 			throw new MatchValidationException("Tournament has no Challonge bracket yet.");
 		}
 
-		var participants = await challongeParticipantRepository.ListByTournamentAsync(tournament.Id, ct);
-
+		// Only 2 rows are actually needed here (unlike SyncFromChallongeAsync, which legitimately
+		// resolves every match against every participant) — targeted lookups instead of loading
+		// the whole tournament's participant table just to find these two.
 		string p1ChallongeId, p2ChallongeId;
 		if (match.P1TeamId is Guid p1TeamId && match.P2TeamId is Guid p2TeamId)
 		{
-			var teamToChallonge = participants.Where(p => p.TeamId is not null).ToDictionary(p => p.TeamId!.Value, p => p.ChallongeParticipantId);
-			if (!teamToChallonge.TryGetValue(p1TeamId, out p1ChallongeId!) || !teamToChallonge.TryGetValue(p2TeamId, out p2ChallongeId!))
+			var p1Participant = await challongeParticipantRepository.FindAsync(tournament.Id, null, p1TeamId, ct);
+			var p2Participant = await challongeParticipantRepository.FindAsync(tournament.Id, null, p2TeamId, ct);
+			if (p1Participant is null || p2Participant is null)
 			{
 				throw new MatchValidationException("Match participants are not registered as Challonge participants.");
 			}
+
+			p1ChallongeId = p1Participant.ChallongeParticipantId;
+			p2ChallongeId = p2Participant.ChallongeParticipantId;
 		}
 		else
 		{
-			var playerIdToChallonge = participants.Where(p => p.PlayerId is not null).ToDictionary(p => p.PlayerId!.Value, p => p.ChallongeParticipantId);
-			if (!playerIdToChallonge.TryGetValue(match.P1PlayerId!.Value, out p1ChallongeId!) || !playerIdToChallonge.TryGetValue(match.P2PlayerId!.Value, out p2ChallongeId!))
+			var p1Participant = await challongeParticipantRepository.FindAsync(tournament.Id, match.P1PlayerId!.Value, null, ct);
+			var p2Participant = await challongeParticipantRepository.FindAsync(tournament.Id, match.P2PlayerId!.Value, null, ct);
+			if (p1Participant is null || p2Participant is null)
 			{
 				throw new MatchValidationException("Match participants are not registered as Challonge participants.");
 			}
+
+			p1ChallongeId = p1Participant.ChallongeParticipantId;
+			p2ChallongeId = p2Participant.ChallongeParticipantId;
 		}
 
 		await challongeClient.UpdateMatchResultAsync(
@@ -418,8 +425,8 @@ public class MatchService(
 	private static Guid? ResolveTeamId(string? challongeParticipantId, Dictionary<string, Guid> challongeToTeamId) =>
 		challongeParticipantId is not null && challongeToTeamId.TryGetValue(challongeParticipantId, out var teamId) ? teamId : null;
 
-	// Direct port of the toMinutes()/toSeconds() helpers in approveResult.js/adminSetMatchResult.js
-	// — despite the legacy name, this parses "H:MM" as hours*60+minutes, not seconds.
+	// Despite the name, this parses "H:MM" as hours*60+minutes, not seconds — matches the
+	// ResultP1/ResultP2 "lower time wins" race-format semantics (see TournamentMatch).
 	private static int ParseMinutes(string time)
 	{
 		var parts = time.Split(':');

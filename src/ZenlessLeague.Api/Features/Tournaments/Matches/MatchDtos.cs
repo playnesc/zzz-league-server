@@ -1,7 +1,6 @@
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
-// ResultScreenshot is a base64 data-url image — the service uploads it and stores the resulting
-// URL, matching legacy's client-sends-base64-in-body contract (functions/user/approveResult.js).
+// ResultScreenshot is a base64 data-url image — the service uploads it and stores the resulting URL.
 public record SubmitPlayerResultRequest(string ResultP1, string ResultP2, string? ResultScreenshot = null);
 
 public record SetAdminResultRequest(

@@ -1,8 +1,5 @@
 namespace ZenlessLeague.Api.Features.Players;
 
-// Direct port of functions/utils/registerMatchResult.js's calculateEloChange/effectiveRating.
-// Pure — the caller (Features/History, added in a later phase) is responsible for persisting
-// the result.
 public static class EloCalculator
 {
 	public readonly record struct RatingInfo(int Elo, int TournamentPoints, bool IsMidConfirmed);

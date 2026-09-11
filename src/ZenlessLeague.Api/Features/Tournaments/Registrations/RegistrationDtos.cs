@@ -7,8 +7,6 @@ public record PlayerRegistrationDetailsRequest(
 	string DarteNickname,
 	string DartePresetName,
 	string RosterName,
-	// Base64 data-url images. Omit to reuse the existing registration's (or the player's cached
-	// last-registration) screenshot — see functions/user/applyForTournament.js's reuse fallback.
 	string? RosterScreenshot = null,
 	string? HoyolabScreenshot = null);
 

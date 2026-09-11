@@ -1,14 +1,11 @@
 namespace ZenlessLeague.Api.Features.Tournaments;
 
-// Not in the legacy Firebase schema — 2v2 doesn't exist there yet.
 public enum TournamentRegistrationType { Solo, Team }
 
-// Mirrors zzz-league's TOURNAMENT_STATE (functions/utils/tournamentState.js).
 public enum TournamentState { Registration, RegistrationClosed, BracketCreated, Started, AwaitingReview, Complete }
 
-// Mirrors the Firebase `Tournament` interface's scalar fields (zzz-league/src/lib/types.ts)
-// so a future migration of old tournaments doesn't need a schema change to add them back.
-// `matches`/`winnerId` are excluded — bracket-result concerns, a separate future entity.
+// Scalar fields only — bracket-result concerns (`matches`/`winnerId`) are a separate entity
+// (TournamentMatch), not stored here.
 public class Tournament
 {
 	public Guid Id { get; set; }
@@ -30,7 +27,6 @@ public class Tournament
 	public TournamentRegistrationType RegistrationType { get; set; }
 	public bool Visible { get; set; } = true;
 
-	// Challonge bracket format (e.g. "single elimination") — legacy field was named `type`.
 	public string? BracketType { get; set; }
 	public string? ChallongeTournamentId { get; set; }
 	public string? ChallongeTournamentUrl { get; set; }
@@ -48,8 +44,5 @@ public class Tournament
 	public string? DiscordRoleId { get; set; }
 	public string? DiscordChannelId { get; set; }
 
-	// The legacy RTDB push-key, preserved for traceability and so the Phase 8 migration tool can
-	// be re-run idempotently against a partially-migrated database. Null for tournaments created
-	// directly on this API (never migrated from Firebase).
 	public string? LegacyId { get; set; }
 }

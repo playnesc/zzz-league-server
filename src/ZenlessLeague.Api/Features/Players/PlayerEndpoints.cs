@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Data.Authorization;
 
 namespace ZenlessLeague.Api.Features.Players;
@@ -14,14 +15,23 @@ public static class PlayerEndpoints
 			return Results.Created($"/api/players/{player.Uid}", player);
 		}).RequireAuthorization("Admin");
 
-		group.MapGet("/", async (IPlayerService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(ct)));
+		// ?uids=a,b,c batch-resolves a known set of players (e.g. a tournament's registrants);
+		// omitted, returns the whole roster. Always the lean PlayerListItemDto shape.
+		group.MapGet("/", async (string? uids, IPlayerService service, CancellationToken ct) =>
+			Results.Ok(await service.ListAsync(uids?.Split(',', StringSplitOptions.RemoveEmptyEntries), ct)));
 
-		group.MapGet("/{uid}", async (string uid, IPlayerService service, CancellationToken ct) =>
+		// Self-or-admin: the full PlayerDto includes LastRegistration (PrizeUid, roster/Hoyolab
+		// screenshot URLs) — not safe to expose for arbitrary other players.
+		group.MapGet("/{uid}", async (string uid, HttpContext http, IAuthorizationService authorization, IPlayerService service, CancellationToken ct) =>
 		{
+			if (http.User.GetUid() != uid && !(await authorization.AuthorizeAsync(http.User, "Admin")).Succeeded)
+			{
+				return Results.Forbid();
+			}
+
 			var player = await service.GetAsync(uid, ct);
 			return player is null ? Results.NotFound() : Results.Ok(player);
-		});
+		}).RequireAuthorization();
 
 		group.MapDelete("/{uid}", async (string uid, IPlayerService service, CancellationToken ct) =>
 			await service.DeleteAsync(uid, ct) ? Results.NoContent() : Results.NotFound())

@@ -8,7 +8,6 @@ public static class HistoryEndpoints
 	{
 		var history = app.MapGroup("/api/history");
 
-		// Port of functions/admin/registerMatch.js — an ad-hoc (non-tournament) 1v1 result.
 		// Resolves the request's Firebase uids to Player.Id here, at the HTTP boundary, since
 		// HistoryService's own methods work in Guid ids (matching HistoryEntry's real FKs).
 		history.MapPost("/matches", async (RegisterMatchResultRequest request, IHistoryService service, IPlayerRepository playerRepository, CancellationToken ct) =>
@@ -33,15 +32,19 @@ public static class HistoryEndpoints
 		history.MapGet("/player/{uid}", async (string uid, int? take, DateTimeOffset? beforeTimestamp, Guid? beforeId, IHistoryService service, CancellationToken ct) =>
 			Results.Ok(await service.ListPageByPlayerAsync(uid, ClampPageSize(take), beforeTimestamp, beforeId, ct)));
 
-		// Port of functions/admin/history/deleteHistoryEntry.js.
+		history.MapGet("/elo-preview", async (string p1Uid, string p2Uid, IHistoryService service, CancellationToken ct) =>
+			Results.Ok(await service.PreviewEloChangeAsync(p1Uid, p2Uid, ct)))
+			.RequireAuthorization("Admin");
+
 		history.MapDelete("/{id:guid}", async (Guid id, IHistoryService service, CancellationToken ct) =>
 			await service.ReverseEntryAsync(id, ct) ? Results.NoContent() : Results.NotFound())
 			.RequireAuthorization("Admin");
 
-		// Port of functions/admin/updatePlayerElo.js.
-		app.MapGroup("/api/players").MapPut("/{uid}/elo", async (string uid, SetPlayerEloRequest request, IHistoryService service, CancellationToken ct) =>
-			Results.Ok(await service.SetPlayerEloAsync(uid, request.Elo, ct))
-		).RequireAuthorization("Admin");
+		app.MapGroup("/api/players").MapPut("/{uid}/elo", async (string uid, SetPlayerEloRequest request, IHistoryService historyService, IPlayerService playerService, CancellationToken ct) =>
+		{
+			await historyService.SetPlayerEloAsync(uid, request.Elo, ct);
+			return Results.Ok(await playerService.GetAsync(uid, ct));
+		}).RequireAuthorization("Admin");
 	}
 
 	private const int DefaultPageSize = 50;

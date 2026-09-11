@@ -5,12 +5,6 @@ namespace ZenlessLeague.Api.Features.Players;
 
 public class PlayerRepository(AppDbContext context) : IPlayerRepository
 {
-	public async Task<PlayerSummary?> GetByUidAsync(string uid, CancellationToken ct = default)
-	{
-		var player = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Uid == uid, ct);
-		return player is null ? null : ToSummary(player);
-	}
-
 	public async Task<PlayerSummary?> GetByIdAsync(Guid id, CancellationToken ct = default)
 	{
 		var player = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
@@ -29,8 +23,17 @@ public class PlayerRepository(AppDbContext context) : IPlayerRepository
 	public Task<Player?> GetEntityByDiscordIdAsync(string discordId, CancellationToken ct = default) =>
 		context.Players.FirstOrDefaultAsync(p => p.DiscordId == discordId, ct);
 
-	public Task<List<Player>> ListAsync(CancellationToken ct = default) =>
-		context.Players.OrderBy(p => p.Name).ToListAsync(ct);
+	public Task<List<Player>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default)
+	{
+		var query = context.Players.AsQueryable();
+		if (uids is not null)
+		{
+			var uidList = uids.ToList();
+			query = query.Where(p => uidList.Contains(p.Uid));
+		}
+
+		return query.OrderBy(p => p.Name).ToListAsync(ct);
+	}
 
 	public async Task<Player> CreateAsync(Player player, CancellationToken ct = default)
 	{

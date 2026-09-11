@@ -17,8 +17,6 @@ public static class RegistrationEndpoints
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
 		}).RequireAuthorization();
 
-		// Only the team's two players (or an admin) may register it — mirrors the membership
-		// check on PUT/DELETE /api/teams/{id}.
 		group.MapPost("/team", async (
 			Guid id, TeamRegistrationRequest request, HttpContext http, IAuthorizationService authorization,
 			ITeamService teamService, ITournamentRegistrationService service, CancellationToken ct) =>
@@ -41,14 +39,15 @@ public static class RegistrationEndpoints
 		}).RequireAuthorization();
 
 		group.MapGet("/", async (Guid id, ITournamentRegistrationService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(id, ct)));
+			Results.Ok(await service.ListAsync(id, ct)))
+			.RequireAuthorization();
 
 		group.MapGet("/{registrationId:guid}", async (
 			Guid id, Guid registrationId, ITournamentRegistrationService service, CancellationToken ct) =>
 		{
 			var registration = await service.GetAsync(id, registrationId, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		});
+		}).RequireAuthorization();
 
 		group.MapPost("/admin-add", async (
 			Guid id, AdminAddRegistrationRequest request, ITournamentRegistrationService service, CancellationToken ct) =>

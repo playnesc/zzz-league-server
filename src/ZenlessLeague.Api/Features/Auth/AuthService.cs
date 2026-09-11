@@ -2,27 +2,24 @@ using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Features.Auth;
 
 public interface IAuthService
 {
 	// Logs in (or, for a Discord id never seen before, silently registers) a player via Discord
-	// OAuth, returning a Firebase custom token for the frontend to exchange via
-	// signInWithCustomToken. Port of the login half of functions/discord/linkDiscord.js, merged
-	// with functions/user/register.js's custom-token-minting responsibility.
+	// OAuth, returning a Firebase custom token for the frontend to exchange via signInWithCustomToken.
 	Task<string> LoginWithDiscordAsync(string code, string redirectUri, CancellationToken ct = default);
 
-	// Port of functions/discord/linkDiscord.js's account-linking half, for an already
-	// authenticated player. Returns false if no player exists for uid.
-	Task<bool> LinkDiscordAsync(string uid, string code, string redirectUri, CancellationToken ct = default);
-
-	// Port of functions/discord/unlinkDiscord.js. Returns false if no player exists for uid.
-	Task<bool> UnlinkDiscordAsync(string uid, CancellationToken ct = default);
+	// Returns the updated player, or null if no player exists for uid.
+	Task<PlayerDto?> LinkDiscordAsync(string uid, string code, string redirectUri, CancellationToken ct = default);
+	Task<PlayerDto?> UnlinkDiscordAsync(string uid, CancellationToken ct = default);
 }
 
 public class AuthService(
 	IPlayerRepository playerRepository,
+	ITournamentRegistrationRepository registrationRepository,
 	IDiscordOAuthClient discordOAuthClient,
 	IDiscordClient discordClient,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
@@ -49,12 +46,12 @@ public class AuthService(
 		return tokenSigner.CreateCustomToken(player.Uid);
 	}
 
-	public async Task<bool> LinkDiscordAsync(string uid, string code, string redirectUri, CancellationToken ct = default)
+	public async Task<PlayerDto?> LinkDiscordAsync(string uid, string code, string redirectUri, CancellationToken ct = default)
 	{
 		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
 		if (player is null)
 		{
-			return false;
+			return null;
 		}
 
 		var discordUser = await discordOAuthClient.ExchangeCodeAsync(code, redirectUri, ct);
@@ -70,15 +67,15 @@ public class AuthService(
 		await playerRepository.SaveChangesAsync(ct);
 
 		await discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct);
-		return true;
+		return await BuildDtoAsync(player, ct);
 	}
 
-	public async Task<bool> UnlinkDiscordAsync(string uid, CancellationToken ct = default)
+	public async Task<PlayerDto?> UnlinkDiscordAsync(string uid, CancellationToken ct = default)
 	{
 		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
 		if (player is null)
 		{
-			return false;
+			return null;
 		}
 
 		if (player.DiscordId is not null)
@@ -92,12 +89,15 @@ public class AuthService(
 		player.DiscordId = null;
 		player.DiscordUsername = null;
 		await playerRepository.SaveChangesAsync(ct);
-		return true;
+		return await BuildDtoAsync(player, ct);
 	}
 
-	// Auto-resolves a Discord username collision by suffixing an incrementing number — used only
-	// for first-time Discord login, since the account is being silently created rather than going
-	// through a form where the user could pick something else.
+	private async Task<PlayerDto> BuildDtoAsync(Player p, CancellationToken ct)
+	{
+		var lastRegistration = await registrationRepository.GetMostRecentSoloByPlayerAsync(p.Id, ct);
+		return PlayerService.ToDto(p, lastRegistration?.Player1Details);
+	}
+
 	private async Task<string> ResolveAvailableNameAsync(string baseName, CancellationToken ct)
 	{
 		if (await playerRepository.GetByNameAsync(baseName, ct) is null)

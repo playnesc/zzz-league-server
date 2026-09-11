@@ -35,16 +35,8 @@ public interface IChallongeClient
 
 	Task<List<ChallongeParticipantResult>> GetAllParticipantsAsync(string challongeTournamentId, CancellationToken ct = default);
 
-	// Returns false if Challonge reports the tournament was already started (a soft-success,
-	// same tolerance as FinalizeAsync) — makes retrying the caller's whole start sequence safe.
 	Task<bool> StartAsync(string challongeTournamentId, CancellationToken ct = default);
-
-	// Returns false if Challonge reports the tournament was already finalized (a soft-success the legacy code tolerates).
 	Task<bool> FinalizeAsync(string challongeTournamentId, CancellationToken ct = default);
-
-	// Reverts a started/complete tournament back to "pending" — Challonge requires this before a
-	// non-pending tournament can be deleted. Returns false if Challonge reports it's already
-	// pending (same soft-success tolerance as Start/Finalize).
 	Task<bool> ResetAsync(string challongeTournamentId, CancellationToken ct = default);
 
 	Task UpdateMatchResultAsync(
@@ -54,17 +46,6 @@ public interface IChallongeClient
 	Task DeleteTournamentAsync(string challongeTournamentId, CancellationToken ct = default);
 }
 
-// REST client for the Challonge v2.1 API. Ports the fetch() calls scattered across
-// functions/admin/tournament/{createChallongeBracket,startChallongeTournament,finishTournament,deleteTournament}.js,
-// functions/{user/approveResult,admin/tournament/adminSetMatchResult}.js, and
-// functions/utils/updateTournamentGames.js into one typed client.
-//
-// NOTE: ported directly from the legacy source's literal request/response shapes. Bracket
-// creation (CreateTournamentAsync/BulkAddParticipantsAsync/RandomizeParticipantsAsync) is
-// confirmed working against a real Challonge account; StartAsync's change_state.json call hit an
-// unexplained 415 "Invalid header value in Content-Type" on first real use (mirrors the legacy
-// JS's exact header/body shape, so not an obvious client-side bug) — SendAsync now logs the
-// Content-Type it actually sent on any non-success response to help root-cause a recurrence.
 public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> options, ILogger<ChallongeClient> logger) : IChallongeClient
 {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -234,8 +215,6 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 			return true;
 		}
 
-		// Tournament is already gone on Challonge's side (e.g. deleted out-of-band) — nothing to
-		// reset, and the caller's subsequent DeleteTournamentAsync already tolerates this too.
 		if (response.StatusCode == HttpStatusCode.NotFound)
 		{
 			return false;
@@ -303,10 +282,9 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 		}
 		else
 		{
-			// Confirmed live: Challonge requires Content-Type on every request, including bodyless
-			// GETs — omitting it gets a 415 that confusingly blames "Content-Type" for being blank
-			// rather than saying it's missing. The legacy Node client always sent this header
-			// unconditionally (functions/utils/updateTournamentGames.js); this restores that.
+			// Challonge requires Content-Type on every request, including bodyless GETs — omitting
+			// it gets a 415 that confusingly blames "Content-Type" for being blank rather than
+			// saying it's missing.
 			request.Content = new ByteArrayContent([]);
 			request.Content.Headers.ContentType = jsonApiMediaType;
 		}
@@ -315,9 +293,6 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 
 		if (!response.IsSuccessStatusCode)
 		{
-			// Full dump of what THIS process actually sent/received, per .NET's own object model —
-			// buffer the response first so this read doesn't steal the body from the caller's own
-			// ThrowIfErrorAsync/ReadAsync (which reads it again afterward).
 			await response.Content.LoadIntoBufferAsync(ct);
 			var requestHeaders = string.Join("; ", request.Headers.Select(h => $"{h.Key}=[{string.Join("|", h.Value)}]"));
 			var contentHeaders = request.Content is null

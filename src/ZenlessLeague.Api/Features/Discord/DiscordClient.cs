@@ -26,13 +26,6 @@ public interface IDiscordClient
 	Task DeleteGuildChannelAsync(string channelId, CancellationToken ct = default);
 }
 
-// REST client for the Discord bot API. Ports functions/discord/discordClient.js's ~7-endpoint
-// surface (a plain REST wrapper in legacy too, built on @discordjs/rest — not the full discord.js
-// client) using a typed HttpClient instead.
-//
-// NOTE: written directly from the legacy source but not yet exercised against a real Discord
-// bot/guild (no bot token configured in this environment) — verify against a real server before
-// relying on this for tournament role/channel automation.
 public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> options) : IDiscordClient
 {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

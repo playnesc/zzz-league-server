@@ -1,13 +1,9 @@
 namespace ZenlessLeague.Api.Features.History;
 
-// Mirrors the legacy `tournamentMatch` sentinel string ("custom"/"techloss"/"adjustment") for
-// entries that aren't tied to a real bracket match. A real bracket match entry (Phase 3) will
-// have Kind=None and TournamentMatchId set instead.
+// Kind is None (and TournamentMatchId is set) for a real bracket-match entry; the other values
+// tag entries that aren't tied to a bracket match.
 public enum TournamentMatchKind { None, Custom, TechLoss, Adjustment }
 
-// Replaces the legacy `historyV3` + `historyByPlayer` fan-out (functions/utils/registerMatchResult.js)
-// with one indexed table — both legacy read patterns (global history scan, per-player history)
-// become a WHERE clause instead of a second write path.
 public class HistoryEntry
 {
 	public Guid Id { get; set; }
@@ -28,8 +24,5 @@ public class HistoryEntry
 
 	public DateTimeOffset Timestamp { get; set; }
 
-	// The legacy `historyV3` RTDB push-key — same traceability/idempotency rationale as
-	// Tournament.LegacyId. Also how the Phase 8 migrator resolves TournamentMatch.HistoryEntryId
-	// (legacy stored that as a runtime-only `historyKey` string on the match, not a real FK).
 	public string? LegacyHistoryKey { get; set; }
 }

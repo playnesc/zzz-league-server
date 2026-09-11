@@ -2,8 +2,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace ZenlessLeague.Api.Features.Tournaments.Realtime;
 
-// Thin "X changed" signals only — clients re-fetch via the existing REST DTOs on notification.
-// One serialization contract (the DTOs) instead of two competing ones (DTOs + hub payloads).
 public interface ITournamentNotifier
 {
 	Task TournamentChangedAsync(Guid tournamentId, CancellationToken ct = default);

@@ -47,7 +47,7 @@ public class TournamentRegistrationServiceTests
 		new("game-uid", true, null, "nick", "preset", "roster", rosterScreenshot, hoyolabScreenshot);
 
 	[Fact]
-	public async Task RegisterSolo_WithScreenshots_UploadsAndCachesOnPlayer()
+	public async Task RegisterSolo_WithScreenshots_Uploads()
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedSoloTournamentAsync(context);
@@ -61,10 +61,6 @@ public class TournamentRegistrationServiceTests
 		Assert.Equal(2, storage.Uploads.Count);
 		Assert.NotNull(result!.Player1.RosterScreenshotUrl);
 		Assert.NotNull(result.Player1.HoyolabScreenshotUrl);
-
-		var player = await context.Players.SingleAsync(p => p.Uid == "p1");
-		Assert.NotNull(player.LastRegistrationCache);
-		Assert.Equal(result.Player1.RosterScreenshotUrl, player.LastRegistrationCache!.RosterScreenshotUrl);
 
 		Assert.Contains((tournament.Id, result.Id), notifier.RegistrationChanged);
 	}
@@ -91,24 +87,23 @@ public class TournamentRegistrationServiceTests
 	}
 
 	[Fact]
-	public async Task RegisterSolo_NoExistingRegistration_ReusesPlayersLastRegistrationCache()
+	public async Task RegisterSolo_NoExistingRegistrationForThisTournament_ReusesPlayersMostRecentRegistrationElsewhere()
 	{
 		await using var context = CreateContext();
+		var previousTournament = await SeedSoloTournamentAsync(context);
 		var tournament = await SeedSoloTournamentAsync(context);
-		var p1 = TestPlayers.Create(context, "p1");
-		p1.LastRegistrationCache = new LastRegistrationCache
-		{
-			GameUid = "old", DarteNickname = "old", DartePresetName = "old", RosterName = "old",
-			RosterScreenshotUrl = "https://cached/roster.jpg", HoyolabScreenshotUrl = "https://cached/hoyolab.jpg",
-		};
+		TestPlayers.Create(context, "p1");
 		await context.SaveChangesAsync();
-		var (service, storage, notifier) = CreateService(context);
+		var (service, storage, _) = CreateService(context);
+
+		await service.RegisterSoloAsync(previousTournament.Id, new SoloRegistrationRequest("p1", Details("data:image/png;base64,Zm9v", "data:image/png;base64,YmFy")));
+		storage.Uploads.Clear();
 
 		var result = await service.RegisterSoloAsync(tournament.Id, new SoloRegistrationRequest("p1", Details()));
 
 		Assert.Empty(storage.Uploads);
-		Assert.Equal("https://cached/roster.jpg", result!.Player1.RosterScreenshotUrl);
-		Assert.Equal("https://cached/hoyolab.jpg", result.Player1.HoyolabScreenshotUrl);
+		Assert.NotNull(result!.Player1.RosterScreenshotUrl);
+		Assert.NotNull(result.Player1.HoyolabScreenshotUrl);
 	}
 
 	[Fact]

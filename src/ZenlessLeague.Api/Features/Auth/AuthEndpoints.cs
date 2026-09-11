@@ -12,7 +12,6 @@ public static class AuthEndpoints
 	{
 		var auth = app.MapGroup("/api/auth");
 
-		// Anonymous by design — this IS the login mechanism, there's no token to require yet.
 		auth.MapPost("/discord/login", async (LoginWithDiscordRequest request, IAuthService service, CancellationToken ct) =>
 		{
 			var token = await service.LoginWithDiscordAsync(request.Code, request.RedirectUri, ct);
@@ -22,15 +21,15 @@ public static class AuthEndpoints
 		var players = app.MapGroup("/api/players/me/discord");
 
 		players.MapPost("/link", async (LinkDiscordRequest request, HttpContext http, IAuthService service, CancellationToken ct) =>
-			await service.LinkDiscordAsync(http.User.GetUid()!, request.Code, request.RedirectUri, ct)
-				? Results.NoContent()
-				: Results.NotFound())
-			.RequireAuthorization();
+		{
+			var player = await service.LinkDiscordAsync(http.User.GetUid()!, request.Code, request.RedirectUri, ct);
+			return player is null ? Results.NotFound() : Results.Ok(player);
+		}).RequireAuthorization();
 
 		players.MapPost("/unlink", async (HttpContext http, IAuthService service, CancellationToken ct) =>
-			await service.UnlinkDiscordAsync(http.User.GetUid()!, ct)
-				? Results.NoContent()
-				: Results.NotFound())
-			.RequireAuthorization();
+		{
+			var player = await service.UnlinkDiscordAsync(http.User.GetUid()!, ct);
+			return player is null ? Results.NotFound() : Results.Ok(player);
+		}).RequireAuthorization();
 	}
 }

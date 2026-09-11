@@ -2,42 +2,41 @@ using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Features.History;
 
 public interface IHistoryService
 {
-	// Direct port of functions/utils/registerMatchResult.js. `tournamentId`/`kind` are null/None
-	// for ad-hoc (non-tournament) matches. Player ids are internal Guid FKs (Player.Id) —
-	// callers resolve a Firebase uid to one first (see HistoryEndpoints's ad-hoc /matches route).
+	// `tournamentId`/`kind` are null/None for ad-hoc (non-tournament) matches. Player ids are
+	// internal Guid FKs (Player.Id) — callers resolve a Firebase uid to one first (see
+	// HistoryEndpoints's ad-hoc /matches route).
 	Task<HistoryEntryDto> RegisterMatchResultAsync(
 		Guid p1PlayerId, Guid p2PlayerId, bool p1Win, int overrideEloChange,
 		Guid? tournamentId = null, Guid? tournamentMatchId = null, TournamentMatchKind kind = TournamentMatchKind.None,
 		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
 		bool techLoss = false, CancellationToken ct = default);
 
-	// 2v2 equivalent of RegisterMatchResultAsync. There's no such thing in the legacy app — this
-	// is new domain modeling (see Tournament.RegistrationType). A team match produces TWO
-	// HistoryEntry rows ("lanes": creator-vs-creator, player2-vs-player2) since HistoryEntry is
-	// inherently a 2-player record; both lanes carry the identical team-level change values, per
-	// the user's explicit choice of "average team rating, same change for all 4 players" over
-	// computing something per-individual.
+	// 2v2 equivalent of RegisterMatchResultAsync. A team match produces TWO HistoryEntry rows
+	// ("lanes": creator-vs-creator, player2-vs-player2) since HistoryEntry is inherently a
+	// 2-player record; both lanes carry the identical team-level change values ("average team
+	// rating, same change for all 4 players" rather than something per-individual).
 	Task<(HistoryEntryDto Entry1, HistoryEntryDto Entry2)> RegisterTeamMatchResultAsync(
 		Guid p1TeamId, Guid p2TeamId, bool p1Win, int overrideEloChange,
 		Guid tournamentId, Guid tournamentMatchId, TournamentMatchKind kind,
 		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
 		bool techLoss = false, CancellationToken ct = default);
 
-	// Undoes a history entry's effect on the referenced player(s) and deletes it. Ports both the
-	// reversal block embedded in functions/admin/tournament/adminSetMatchResult.js (2-player match
-	// results — used before a result gets recomputed) and functions/admin/history/deleteHistoryEntry.js's
-	// single-player branch (Elo-adjustment entries — reverts elo directly, recomputes tier flags).
-	// Returns false if the entry doesn't exist.
+	// Undoes a history entry's effect on the referenced player(s) and deletes it. Returns false
+	// if the entry doesn't exist.
 	Task<bool> ReverseEntryAsync(Guid historyEntryId, CancellationToken ct = default);
 
-	// Port of functions/utils/setPlayerElo.js. Keyed by uid (not Player.Id) since it's driven
-	// directly off an admin-facing route parameter.
 	Task<HistoryEntryDto> SetPlayerEloAsync(string uid, int elo, CancellationToken ct = default);
+
+	// Non-authoritative preview for the admin match-registration tool's Elo forecast — computes
+	// what RegisterMatchResultAsync would produce for either outcome (no override, no tech loss),
+	// without persisting anything.
+	Task<EloPreviewDto> PreviewEloChangeAsync(string p1Uid, string p2Uid, CancellationToken ct = default);
 
 	Task<List<HistoryEntryDto>> ListAsync(CancellationToken ct = default);
 	Task<List<HistoryEntryDto>> ListByPlayerAsync(string uid, CancellationToken ct = default);
@@ -53,7 +52,8 @@ public class HistoryService(
 	IPlayerRepository playerRepository,
 	IHistoryRepository historyRepository,
 	ITeamRepository teamRepository,
-	IDiscordRoleAssignmentService discordRoleAssignmentService) : IHistoryService
+	IDiscordRoleAssignmentService discordRoleAssignmentService,
+	ITournamentRepository tournamentRepository) : IHistoryService
 {
 	public async Task<HistoryEntryDto> RegisterMatchResultAsync(
 		Guid p1PlayerId, Guid p2PlayerId, bool p1Win, int overrideEloChange,
@@ -96,9 +96,6 @@ public class HistoryService(
 			P2Change = p2Change,
 			TournamentId = tournamentId,
 			TournamentMatchId = tournamentMatchId,
-			// Legacy: when there's no tournamentId, the "kind" sentinel is forced from techLoss
-			// regardless of what the caller passed — a real tournament match always passes its
-			// own tournamentId, so this branch only ever applies to ad-hoc matches.
 			Kind = tournamentId is null ? (techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.Custom) : kind,
 			ResultP1 = resultP1,
 			ResultP2 = resultP2,
@@ -130,10 +127,8 @@ public class HistoryService(
 		var team2P2 = await playerRepository.GetEntityByIdAsync(team2.Player2Id, ct)
 			?? throw new HistoryValidationException($"Player '{team2.Player2Id}' does not exist.");
 
-		// Team rating = average effective rating (elo + tournamentPoints) of its two members,
-		// fed to EloCalculator as a single virtual "player" so the whole win/loss/K-factor formula
-		// is reused unchanged. IsMidConfirmed requires BOTH members confirmed — a judgment call
-		// (not specified by the user) reasoning that a team is only as "proven" as its weaker half.
+		// Team rating = average effective rating of its two members, fed to EloCalculator as a
+		// single virtual "player". IsMidConfirmed requires both members confirmed.
 		var r1 = new EloCalculator.RatingInfo(TeamEffectiveRating(team1P1, team1P2), 0, team1P1.IsMidConfirmed && team1P2.IsMidConfirmed);
 		var r2 = new EloCalculator.RatingInfo(TeamEffectiveRating(team2P1, team2P2), 0, team2P1.IsMidConfirmed && team2P2.IsMidConfirmed);
 		var (team1Change, team2Change) = CalculateChanges(r1, r2, p1Win, overrideEloChange, techLoss);
@@ -213,8 +208,6 @@ public class HistoryService(
 		}
 		else
 		{
-			// Single-player Elo adjustment (e.g. setPlayerElo/updatePlayerElo) — revert elo
-			// directly and recompute tier flags, matching deleteHistoryEntry.js's other branch.
 			var p1 = await playerRepository.GetEntityByIdAsync(entry.P1PlayerId, ct)
 				?? throw new InvalidOperationException($"Player '{entry.P1PlayerId}' referenced by history entry '{entry.Id}' is missing.");
 
@@ -261,18 +254,32 @@ public class HistoryService(
 
 		await historyRepository.CreateAsync(entry, ct);
 
-		// Legacy calls this fire-and-forget (unawaited); we await it but swallow failures so a
-		// Discord outage (or Discord simply not being configured) never blocks an Elo update.
 		try
 		{
 			await discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct);
 		}
 		catch
 		{
-			// best-effort — see comment above.
+			// best-effort — a Discord outage shouldn't block an Elo update.
 		}
 
 		return ToDto(entry, player.Uid, null);
+	}
+
+	public async Task<EloPreviewDto> PreviewEloChangeAsync(string p1Uid, string p2Uid, CancellationToken ct = default)
+	{
+		var p1 = await playerRepository.GetEntityByUidAsync(p1Uid, ct)
+			?? throw new HistoryValidationException($"Player '{p1Uid}' does not exist.");
+		var p2 = await playerRepository.GetEntityByUidAsync(p2Uid, ct)
+			?? throw new HistoryValidationException($"Player '{p2Uid}' does not exist.");
+
+		var r1 = new EloCalculator.RatingInfo(p1.Elo, p1.TournamentPoints, p1.IsMidConfirmed);
+		var r2 = new EloCalculator.RatingInfo(p2.Elo, p2.TournamentPoints, p2.IsMidConfirmed);
+
+		var (p1ChangeOnWin, p2ChangeOnLoss) = CalculateChanges(r1, r2, p1Win: true, overrideEloChange: -1, techLoss: false);
+		var (p1ChangeOnLoss, p2ChangeOnWin) = CalculateChanges(r1, r2, p1Win: false, overrideEloChange: -1, techLoss: false);
+
+		return new EloPreviewDto(p1ChangeOnWin, p1ChangeOnLoss, p2ChangeOnWin, p2ChangeOnLoss);
 	}
 
 	public async Task<List<HistoryEntryDto>> ListAsync(CancellationToken ct = default) =>
@@ -328,8 +335,8 @@ public class HistoryService(
 		player.LastPlayedTournamentTimestamp = now;
 	}
 
-	// Direct port of registerMatchResult.js's win/loss change calculation. Also reused for
-	// team matches with a team-average RatingInfo standing in for an individual player's.
+	// Also reused for team matches with a team-average RatingInfo standing in for an individual
+	// player's.
 	private static (int P1Change, int P2Change) CalculateChanges(EloCalculator.RatingInfo r1, EloCalculator.RatingInfo r2, bool p1Win, int overrideEloChange, bool techLoss)
 	{
 		if (techLoss)
@@ -360,14 +367,21 @@ public class HistoryService(
 			.Distinct();
 		var uidsById = await playerRepository.GetUidsByIdsAsync(ids, ct);
 
+		var tournamentIds = entries.Where(e => e.TournamentId is not null).Select(e => e.TournamentId!.Value).Distinct();
+		var namesByTournamentId = await tournamentRepository.GetNamesByIdsAsync(tournamentIds, ct);
+
 		return entries.Select(e => ToDto(
 			e,
 			uidsById.GetValueOrDefault(e.P1PlayerId) ?? throw new InvalidOperationException($"Player '{e.P1PlayerId}' referenced by history entry '{e.Id}' is missing."),
-			e.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) ?? throw new InvalidOperationException($"Player '{p2}' referenced by history entry '{e.Id}' is missing.") : null))
+			e.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) ?? throw new InvalidOperationException($"Player '{p2}' referenced by history entry '{e.Id}' is missing.") : null,
+			e.TournamentId is Guid tid ? namesByTournamentId.GetValueOrDefault(tid) : null))
 			.ToList();
 	}
 
-	private static HistoryEntryDto ToDto(HistoryEntry e, string p1Uid, string? p2Uid) => new(
+	// tournamentName defaults to null for the single-entry write-path callers (Register*/SetPlayerElo)
+	// — their return value is only ever used for its Id right after creation, never rendered as a
+	// history-list row in the same response, so resolving the name there would be wasted work.
+	private static HistoryEntryDto ToDto(HistoryEntry e, string p1Uid, string? p2Uid, string? tournamentName = null) => new(
 		e.Id, p1Uid, e.P1Change, p2Uid, e.P2Change,
-		e.TournamentId, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.ResultScreenshotUrl, e.Timestamp);
+		e.TournamentId, tournamentName, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.ResultScreenshotUrl, e.Timestamp);
 }

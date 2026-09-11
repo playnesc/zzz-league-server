@@ -200,9 +200,14 @@ namespace ZenlessLeague.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("PlayerId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ArchiveId");
+
+                    b.HasIndex("PlayerId");
 
                     b.ToTable("ArchivedPlayerSnapshots");
                 });
@@ -546,60 +551,6 @@ namespace ZenlessLeague.Api.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
-            modelBuilder.Entity("ZenlessLeague.Api.Features.Players.Player", b =>
-                {
-                    b.OwnsOne("ZenlessLeague.Api.Features.Players.LastRegistrationCache", "LastRegistrationCache", b1 =>
-                        {
-                            b1.Property<Guid>("PlayerId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("DarteNickname")
-                                .IsRequired()
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_DarteNickname");
-
-                            b1.Property<string>("DartePresetName")
-                                .IsRequired()
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_DartePresetName");
-
-                            b1.Property<string>("GameUid")
-                                .IsRequired()
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_GameUid");
-
-                            b1.Property<string>("HoyolabScreenshotUrl")
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_HoyolabScreenshotUrl");
-
-                            b1.Property<bool>("PrizeAsMoney")
-                                .HasColumnType("boolean")
-                                .HasColumnName("LastRegistration_PrizeAsMoney");
-
-                            b1.Property<string>("PrizeUid")
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_PrizeUid");
-
-                            b1.Property<string>("RosterName")
-                                .IsRequired()
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_RosterName");
-
-                            b1.Property<string>("RosterScreenshotUrl")
-                                .HasColumnType("text")
-                                .HasColumnName("LastRegistration_RosterScreenshotUrl");
-
-                            b1.HasKey("PlayerId");
-
-                            b1.ToTable("Players");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PlayerId");
-                        });
-
-                    b.Navigation("LastRegistrationCache");
-                });
-
             modelBuilder.Entity("ZenlessLeague.Api.Features.Seasons.ArchivedPlayerSnapshot", b =>
                 {
                     b.HasOne("ZenlessLeague.Api.Features.Seasons.Archive", null)
@@ -607,6 +558,11 @@ namespace ZenlessLeague.Api.Migrations
                         .HasForeignKey("ArchiveId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("ZenlessLeague.Api.Features.Teams.Team", b =>

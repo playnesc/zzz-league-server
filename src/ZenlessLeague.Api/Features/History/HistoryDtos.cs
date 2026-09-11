@@ -12,6 +12,8 @@ public record RegisterMatchResultRequest(
 
 public record SetPlayerEloRequest(int Elo);
 
+public record EloPreviewDto(int P1ChangeOnWin, int P1ChangeOnLoss, int P2ChangeOnWin, int P2ChangeOnLoss);
+
 public record HistoryEntryDto(
 	Guid Id,
 	string P1PlayerId,
@@ -19,6 +21,7 @@ public record HistoryEntryDto(
 	string? P2PlayerId,
 	int? P2Change,
 	Guid? TournamentId,
+	string? TournamentName,
 	Guid? TournamentMatchId,
 	TournamentMatchKind Kind,
 	string? ResultP1,
@@ -27,5 +30,5 @@ public record HistoryEntryDto(
 	DateTimeOffset Timestamp);
 
 // HasMore is `Entries.Count == take` (the page-size the caller asked for) — a cheap heuristic
-// (no extra COUNT query) that matches the legacy RTDB pagination's same trick.
+// that avoids an extra COUNT query.
 public record HistoryPageDto(List<HistoryEntryDto> Entries, bool HasMore);

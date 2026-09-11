@@ -3,6 +3,7 @@ using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Tests;
 
@@ -19,7 +20,8 @@ public class HistoryServiceTests
 	}
 
 	private static HistoryService CreateService(AppDbContext context) =>
-		new(new PlayerRepository(context), new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context));
+		new(new PlayerRepository(context), new HistoryRepository(context), new TeamRepository(context),
+			TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context));
 
 	[Fact]
 	public async Task RegisterMatchResult_ComputesEloAndUpdatesCounters()
@@ -354,6 +356,40 @@ public class HistoryServiceTests
 		}
 
 		Assert.Equal(entries.Select(e => e.Id).OrderBy(id => id), seen.OrderBy(id => id));
+	}
+
+	[Fact]
+	public async Task ListPageAsync_EntryWithTournamentId_ResolvesTournamentName()
+	{
+		await using var context = CreateContext();
+		var p1 = await SeedPlayerAsync(context, "p1");
+		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Spring Cup" };
+		context.Tournaments.Add(tournament);
+		var entry = MakeEntry(p1.Id, DateTimeOffset.UtcNow);
+		entry.TournamentId = tournament.Id;
+		context.HistoryEntries.Add(entry);
+		await context.SaveChangesAsync();
+		var service = CreateService(context);
+
+		var page = await service.ListPageAsync(50, null, null);
+
+		Assert.Equal("Spring Cup", page.Entries[0].TournamentName);
+	}
+
+	[Fact]
+	public async Task ListPageAsync_OrphanedTournamentId_TournamentNameIsNull()
+	{
+		await using var context = CreateContext();
+		var p1 = await SeedPlayerAsync(context, "p1");
+		var entry = MakeEntry(p1.Id, DateTimeOffset.UtcNow);
+		entry.TournamentId = Guid.NewGuid(); // no matching Tournament row
+		context.HistoryEntries.Add(entry);
+		await context.SaveChangesAsync();
+		var service = CreateService(context);
+
+		var page = await service.ListPageAsync(50, null, null);
+
+		Assert.Null(page.Entries[0].TournamentName);
 	}
 
 	[Fact]

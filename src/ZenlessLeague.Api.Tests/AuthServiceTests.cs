@@ -4,6 +4,7 @@ using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Tests;
 
@@ -24,7 +25,8 @@ public class AuthServiceTests
 		});
 		var roleAssignment = new DiscordRoleAssignmentService(new PlayerRepository(context), discord, options);
 		var service = new AuthService(
-			new PlayerRepository(context), oauth, discord, roleAssignment, options, new FakeFirebaseCustomTokenSigner());
+			new PlayerRepository(context), new TournamentRegistrationRepository(context),
+			oauth, discord, roleAssignment, options, new FakeFirebaseCustomTokenSigner());
 
 		return (service, oauth, discord);
 	}
@@ -86,7 +88,7 @@ public class AuthServiceTests
 
 		var result = await service.LinkDiscordAsync("p1", "code", "redirect");
 
-		Assert.True(result);
+		Assert.NotNull(result);
 		Assert.Equal("discord-1", player.DiscordId);
 		Assert.Equal("SomeName", player.DiscordUsername);
 		Assert.Contains(("discord-1", "high"), discord.AddedMemberRoles);
@@ -106,12 +108,12 @@ public class AuthServiceTests
 	}
 
 	[Fact]
-	public async Task LinkDiscordAsync_UnknownPlayer_ReturnsFalse()
+	public async Task LinkDiscordAsync_UnknownPlayer_ReturnsNull()
 	{
 		await using var context = CreateContext();
 		var (service, _, _) = CreateService(context);
 
-		Assert.False(await service.LinkDiscordAsync("missing", "code", "redirect"));
+		Assert.Null(await service.LinkDiscordAsync("missing", "code", "redirect"));
 	}
 
 	[Fact]
@@ -126,7 +128,7 @@ public class AuthServiceTests
 
 		var result = await service.UnlinkDiscordAsync("p1");
 
-		Assert.True(result);
+		Assert.NotNull(result);
 		Assert.Null(player.DiscordId);
 		Assert.Null(player.DiscordUsername);
 		Assert.Equal(3, discord.RemovedMemberRoles.Count(r => r.DiscordUserId == "discord-1"));
@@ -140,16 +142,16 @@ public class AuthServiceTests
 		await context.SaveChangesAsync();
 		var (service, _, discord) = CreateService(context);
 
-		Assert.True(await service.UnlinkDiscordAsync("p1"));
+		Assert.NotNull(await service.UnlinkDiscordAsync("p1"));
 		Assert.Empty(discord.RemovedMemberRoles);
 	}
 
 	[Fact]
-	public async Task UnlinkDiscordAsync_UnknownPlayer_ReturnsFalse()
+	public async Task UnlinkDiscordAsync_UnknownPlayer_ReturnsNull()
 	{
 		await using var context = CreateContext();
 		var (service, _, _) = CreateService(context);
 
-		Assert.False(await service.UnlinkDiscordAsync("missing"));
+		Assert.Null(await service.UnlinkDiscordAsync("missing"));
 	}
 }

@@ -95,7 +95,7 @@ public class MatchServiceTests
 	{
 		var challonge = new FakeChallongeClient();
 		var playerRepository = new PlayerRepository(context);
-		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context));
+		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context));
 		var notifier = new FakeTournamentNotifier();
 		var service = new MatchService(
 			new TournamentRepository(context),

@@ -31,18 +31,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			player.Property(p => p.Name).IsRequired().HasMaxLength(100);
 			player.HasIndex(p => p.Name).IsUnique();
 			player.HasIndex(p => p.DiscordId).IsUnique().HasFilter("\"DiscordId\" IS NOT NULL");
-
-			player.OwnsOne(p => p.LastRegistrationCache, d =>
-			{
-				d.Property(x => x.GameUid).HasColumnName("LastRegistration_GameUid");
-				d.Property(x => x.PrizeUid).HasColumnName("LastRegistration_PrizeUid");
-				d.Property(x => x.PrizeAsMoney).HasColumnName("LastRegistration_PrizeAsMoney");
-				d.Property(x => x.DarteNickname).HasColumnName("LastRegistration_DarteNickname");
-				d.Property(x => x.DartePresetName).HasColumnName("LastRegistration_DartePresetName");
-				d.Property(x => x.RosterName).HasColumnName("LastRegistration_RosterName");
-				d.Property(x => x.RosterScreenshotUrl).HasColumnName("LastRegistration_RosterScreenshotUrl");
-				d.Property(x => x.HoyolabScreenshotUrl).HasColumnName("LastRegistration_HoyolabScreenshotUrl");
-			});
 		});
 
 		modelBuilder.Entity<Team>(team =>
@@ -155,6 +143,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 		modelBuilder.Entity<ArchivedPlayerSnapshot>(snapshot =>
 		{
 			snapshot.Property(s => s.Name).IsRequired();
+			snapshot.HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.SetNull);
 		});
 	}
 }

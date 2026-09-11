@@ -1,6 +1,5 @@
 namespace ZenlessLeague.Api.Features.Tournaments;
 
-// Direct port of functions/utils/tournamentState.js's predicates.
 public static class TournamentStateMachine
 {
 	public static bool IsRegistrationOpen(TournamentState state) => state == TournamentState.Registration;

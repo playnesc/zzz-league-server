@@ -14,10 +14,10 @@ public class TournamentServiceTests
 	private static AppDbContext CreateContext() =>
 		new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
-	private static (ITournamentService Service, FakeTournamentNotifier Notifier, FakeChallongeClient Challonge, FakeDiscordClient Discord) CreateService(AppDbContext context)
+	private static (ITournamentService Service, ITournamentLifecycleService Lifecycle, FakeTournamentNotifier Notifier, FakeChallongeClient Challonge, FakeDiscordClient Discord) CreateService(AppDbContext context)
 	{
 		var playerRepository = new PlayerRepository(context);
-		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context));
+		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context));
 		var challonge = new FakeChallongeClient();
 		var matchService = new MatchService(
 			new TournamentRepository(context),
@@ -32,7 +32,8 @@ public class TournamentServiceTests
 
 		var notifier = new FakeTournamentNotifier();
 		var discord = new FakeDiscordClient();
-		var service = new TournamentService(
+		var service = new TournamentService(new TournamentRepository(context), playerRepository, notifier);
+		var lifecycle = new TournamentLifecycleService(
 			new TournamentRepository(context),
 			new TournamentRegistrationRepository(context),
 			new TeamRepository(context),
@@ -43,7 +44,7 @@ public class TournamentServiceTests
 			historyService,
 			TestDiscord.CreateTournamentResourcesService(context, discord),
 			notifier);
-		return (service, notifier, challonge, discord);
+		return (service, lifecycle, notifier, challonge, discord);
 	}
 
 	private static async Task<Tournament> SeedTournamentAsync(
@@ -89,7 +90,7 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context);
-		var (service, notifier, _, _) = CreateService(context);
+		var (service, _, notifier, _, _) = CreateService(context);
 
 		var result = await service.CloseRegistrationAsync(tournament.Id);
 
@@ -103,7 +104,7 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context, TournamentState.RegistrationClosed);
-		var (service, notifier, _, _) = CreateService(context);
+		var (service, _, notifier, _, _) = CreateService(context);
 
 		await Assert.ThrowsAsync<TournamentLifecycleException>(() => service.CloseRegistrationAsync(tournament.Id));
 	}
@@ -115,9 +116,9 @@ public class TournamentServiceTests
 		var tournament = await SeedTournamentAsync(context);
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p1");
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p2");
-		var (service, notifier, _, _) = CreateService(context);
+		var (_, lifecycle, _, _, _) = CreateService(context);
 
-		await service.IncrementTournamentCountAsync(tournament.Id, seasonal: true);
+		await lifecycle.IncrementTournamentCountAsync(tournament.Id, seasonal: true);
 
 		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
 		Assert.Equal(1, p1.PlayedTournamentCount);
@@ -129,9 +130,9 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context);
-		var (service, notifier, _, _) = CreateService(context);
+		var (_, lifecycle, _, _, _) = CreateService(context);
 
-		await Assert.ThrowsAsync<TournamentLifecycleException>(() => service.IncrementTournamentCountAsync(tournament.Id, seasonal: false));
+		await Assert.ThrowsAsync<TournamentLifecycleException>(() => lifecycle.IncrementTournamentCountAsync(tournament.Id, seasonal: false));
 	}
 
 	[Fact]
@@ -143,9 +144,9 @@ public class TournamentServiceTests
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p2");
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p3");
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p4");
-		var (service, notifier, _, _) = CreateService(context);
+		var (_, lifecycle, notifier, _, _) = CreateService(context);
 
-		var result = await service.SplitAsync(tournament.Id, new SplitTournamentRequest([["p1", "p2"], ["p3", "p4"]]));
+		var result = await lifecycle.SplitAsync(tournament.Id, new SplitTournamentRequest([["p1", "p2"], ["p3", "p4"]]));
 
 		Assert.NotNull(result);
 		Assert.Equal(2, result!.DivisionTournamentIds.Count);
@@ -185,11 +186,11 @@ public class TournamentServiceTests
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p1");
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p2");
 		await SeedApprovedRegistrationAsync(context, tournament.Id, "p3");
-		var (service, notifier, _, _) = CreateService(context);
+		var (_, lifecycle, _, _, _) = CreateService(context);
 
 		// p2 appears twice and p3's group is short — every approved player must appear exactly once.
 		await Assert.ThrowsAsync<TournamentLifecycleException>(() =>
-			service.SplitAsync(tournament.Id, new SplitTournamentRequest([["p1", "p2"], ["p2", "p3"]])));
+			lifecycle.SplitAsync(tournament.Id, new SplitTournamentRequest([["p1", "p2"], ["p2", "p3"]])));
 	}
 
 	private static UpdateTournamentRequest MakeUpdateRequest(string name = "Updated Cup") => new(
@@ -209,7 +210,7 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context);
-		var (service, notifier, _, _) = CreateService(context);
+		var (service, _, notifier, _, _) = CreateService(context);
 
 		var result = await service.UpdateAsync(tournament.Id, MakeUpdateRequest());
 
@@ -228,7 +229,7 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context, TournamentState.BracketCreated);
-		var (service, _, _, _) = CreateService(context);
+		var (service, _, _, _, _) = CreateService(context);
 
 		await Assert.ThrowsAsync<TournamentLifecycleException>(() =>
 			service.UpdateAsync(tournament.Id, MakeUpdateRequest()));
@@ -238,7 +239,7 @@ public class TournamentServiceTests
 	public async Task UpdateAsync_UnknownTournament_ReturnsNull()
 	{
 		await using var context = CreateContext();
-		var (service, _, _, _) = CreateService(context);
+		var (service, _, _, _, _) = CreateService(context);
 
 		var result = await service.UpdateAsync(Guid.NewGuid(), MakeUpdateRequest());
 
@@ -252,7 +253,7 @@ public class TournamentServiceTests
 		var tournament = await SeedTournamentAsync(context, TournamentState.BracketCreated, challongeTournamentId: "ctid");
 		tournament.DiscordRoleName = "Cup Player"; // required for CreateResourcesAsync to attempt role creation at all
 		await context.SaveChangesAsync();
-		var (service, notifier, challonge, discord) = CreateService(context);
+		var (_, lifecycle, notifier, challonge, discord) = CreateService(context);
 		// An unplayed match, same as a freshly-started real bracket — an empty match list would
 		// vacuously look "fully played" to SyncFromChallongeAsync and jump straight to AwaitingReview.
 		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "open", null, "c1", "c2")];
@@ -262,7 +263,7 @@ public class TournamentServiceTests
 		// succeed, rather than leaving the tournament half-started.
 		discord.CreateRoleFailuresRemaining = 2;
 
-		var result = await service.StartAsync(tournament.Id);
+		var result = await lifecycle.StartAsync(tournament.Id);
 
 		Assert.NotNull(result);
 		Assert.Equal(TournamentState.Started, result!.State);
@@ -277,13 +278,13 @@ public class TournamentServiceTests
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context, TournamentState.BracketCreated, challongeTournamentId: "ctid");
-		var (service, notifier, challonge, _) = CreateService(context);
+		var (_, lifecycle, notifier, challonge, _) = CreateService(context);
 
 		// Far more failures than the retry budget allows — the whole sequence should give up
 		// rather than retry forever, and must not have changed anything about the tournament.
 		challonge.StartFailuresRemaining = 10;
 
-		await Assert.ThrowsAsync<TournamentLifecycleException>(() => service.StartAsync(tournament.Id));
+		await Assert.ThrowsAsync<TournamentLifecycleException>(() => lifecycle.StartAsync(tournament.Id));
 
 		var reloaded = await context.Tournaments.SingleAsync(t => t.Id == tournament.Id);
 		Assert.Equal(TournamentState.BracketCreated, reloaded.State);

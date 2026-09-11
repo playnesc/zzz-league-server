@@ -28,19 +28,9 @@ public static class LegacyMapper
 		player.LastEloUpdateTimestamp = ToDateTimeOffset(legacy.LastEloUpdateTimestamp);
 		player.Avatar = legacy.Avatar;
 		player.Role = ParseRole(legacy.Role);
-		player.LastRegistrationCache = legacy.LastRegistration is null ? null : new LastRegistrationCache
-		{
-			GameUid = legacy.LastRegistration.ZzzUid ?? string.Empty,
-			PrizeAsMoney = legacy.LastRegistration.PrizeAsMoney ?? false,
-			PrizeUid = legacy.LastRegistration.PrizeUid,
-			DarteNickname = legacy.LastRegistration.DarteNickname ?? string.Empty,
-			// Legacy naming-bug swap (darteAccount is actually the preset name, dartePreset is
-			// actually the roster name) — see PlayerRegistrationDetails.cs's comment.
-			DartePresetName = legacy.LastRegistration.DarteAccount ?? string.Empty,
-			RosterName = legacy.LastRegistration.DartePreset ?? string.Empty,
-			RosterScreenshotUrl = legacy.LastRegistration.RosterScreenshot,
-			HoyolabScreenshotUrl = legacy.LastRegistration.HoyolabScreenshot,
-		};
+		// legacy.LastRegistration used to seed Player.LastRegistrationCache — that cache was
+		// removed in favor of a live query against TournamentRegistrations (see
+		// PlayerService.BuildDtoAsync), so there's nothing left to map here.
 	}
 
 	public static PlayerRole ParseRole(string? role) => role switch

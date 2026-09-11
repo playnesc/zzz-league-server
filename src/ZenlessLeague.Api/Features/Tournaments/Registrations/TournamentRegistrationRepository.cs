@@ -6,6 +6,11 @@ namespace ZenlessLeague.Api.Features.Tournaments;
 public interface ITournamentRegistrationRepository
 {
 	Task<TournamentRegistration?> FindExistingAsync(Guid tournamentId, Guid? playerId, Guid? teamId, CancellationToken ct = default);
+
+	// Most recently updated solo registration for this player, across ALL tournaments — used to
+	// prefill a new registration's roster/Hoyolab screenshots so returning players don't need to
+	// re-upload them every time (see TournamentRegistrationService.BuildDetailsAsync).
+	Task<TournamentRegistration?> GetMostRecentSoloByPlayerAsync(Guid playerId, CancellationToken ct = default);
 	Task<TournamentRegistration> CreateAsync(TournamentRegistration registration, CancellationToken ct = default);
 	Task SaveChangesAsync(CancellationToken ct = default);
 	Task<TournamentRegistration?> GetByIdAsync(Guid tournamentId, Guid id, CancellationToken ct = default);
@@ -26,6 +31,12 @@ public class TournamentRegistrationRepository(AppDbContext context) : ITournamen
 		await context.SaveChangesAsync(ct);
 		return registration;
 	}
+
+	public Task<TournamentRegistration?> GetMostRecentSoloByPlayerAsync(Guid playerId, CancellationToken ct = default) =>
+		context.TournamentRegistrations
+			.Where(r => r.PlayerId == playerId)
+			.OrderByDescending(r => r.UpdatedAt)
+			.FirstOrDefaultAsync(ct);
 
 	public Task SaveChangesAsync(CancellationToken ct = default) => context.SaveChangesAsync(ct);
 

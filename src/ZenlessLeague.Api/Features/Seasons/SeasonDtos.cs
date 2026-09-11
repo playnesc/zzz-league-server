@@ -2,7 +2,7 @@ namespace ZenlessLeague.Api.Features.Seasons;
 
 public record ResetSeasonRequest(string SeasonName);
 
-public record ArchivedPlayerSnapshotDto(string Name, int Elo, bool IsMidConfirmed, bool IsHighConfirmed);
+public record ArchivedPlayerSnapshotDto(string? Uid, string Name, int Elo, bool IsMidConfirmed, bool IsHighConfirmed);
 
 public record ArchiveDto(Guid Id, string SeasonName, DateTimeOffset CreatedAt, List<ArchivedPlayerSnapshotDto> Players);
 

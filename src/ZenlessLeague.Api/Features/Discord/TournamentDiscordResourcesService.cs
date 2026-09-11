@@ -7,9 +7,6 @@ namespace ZenlessLeague.Api.Features.Discord;
 
 public interface ITournamentDiscordResourcesService
 {
-	// Port of functions/discord/tournamentDiscordResources.js's createTournamentDiscordResources —
-	// no-ops if the tournament has neither a Discord role nor channel name set. Creates whichever
-	// of the two is missing, then adds the role to every approved, Discord-linked registrant.
 	Task CreateResourcesAsync(Guid tournamentId, CancellationToken ct = default);
 
 	Task DeleteRoleAsync(Guid tournamentId, CancellationToken ct = default);
@@ -96,8 +93,6 @@ public class TournamentDiscordResourcesService(
 		await tournamentRepository.SaveChangesAsync(ct);
 	}
 
-	// Legacy is solo-only (registration.uid); we additionally resolve both members of a Team
-	// registration since that's a new concept legacy never had to handle.
 	private async Task<List<string>> GetApprovedDiscordIdsAsync(Guid tournamentId, CancellationToken ct)
 	{
 		var approved = (await registrationRepository.ListByTournamentAsync(tournamentId, ct)).Where(r => r.Approved).ToList();

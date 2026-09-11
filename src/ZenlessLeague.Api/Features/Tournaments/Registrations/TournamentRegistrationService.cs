@@ -13,15 +13,8 @@ public interface ITournamentRegistrationService
 	Task<List<TournamentRegistrationDto>> ListAsync(Guid tournamentId, CancellationToken ct = default);
 	Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default);
 
-	// Port of functions/admin/tournament/adminAddTournamentRegistration.js — force-registers a
-	// player, pre-approved, skipping the usual eligibility/window checks.
 	Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default);
-
-	// Port of functions/admin/tournament/approveRegistration.js.
 	Task<TournamentRegistrationDto?> SetApprovedAsync(Guid tournamentId, Guid registrationId, bool approved, CancellationToken ct = default);
-
-	// Port of functions/user/cancelTournamentRegistration.js. Returns null if the tournament
-	// doesn't exist (404), false if the caller has no registration to cancel (404), true on success.
 	Task<bool?> CancelAsync(Guid tournamentId, string callerPlayerId, CancellationToken ct = default);
 }
 
@@ -56,9 +49,10 @@ public class TournamentRegistrationService(
 		EnsureTierEligible(tournament, player);
 
 		var registration = await registrationRepository.FindExistingAsync(tournamentId, player.Id, null, ct);
+		var lastRegistration = await registrationRepository.GetMostRecentSoloByPlayerAsync(player.Id, ct);
 
 		var details = await BuildDetailsAsync(
-			tournamentId, player.Id, request.Details, registration?.Player1Details, player.LastRegistrationCache, ct);
+			tournamentId, player.Id, request.Details, registration?.Player1Details, lastRegistration?.Player1Details, ct);
 
 		if (registration is null)
 		{
@@ -80,20 +74,6 @@ public class TournamentRegistrationService(
 			await registrationRepository.SaveChangesAsync(ct);
 		}
 
-		// Port of applyForTournament.js's `players/{uid}/lastRegistration` update — lets the
-		// player skip re-uploading screenshots next time they register for a different tournament.
-		player.LastRegistrationCache = new LastRegistrationCache
-		{
-			GameUid = details.GameUid,
-			PrizeAsMoney = details.PrizeAsMoney,
-			PrizeUid = details.PrizeUid,
-			DarteNickname = details.DarteNickname,
-			DartePresetName = details.DartePresetName,
-			RosterName = details.RosterName,
-			RosterScreenshotUrl = details.RosterScreenshotUrl,
-			HoyolabScreenshotUrl = details.HoyolabScreenshotUrl,
-		};
-		await playerRepository.SaveChangesAsync(ct);
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
 
 		return ToDto(registration, player.Uid);
@@ -125,14 +105,9 @@ public class TournamentRegistrationService(
 		{
 			throw new TournamentValidationException($"Player '{team.Player2Id}' does not exist.");
 		}
-		// No tier eligibility check for team registrations (yet) — combining two players' tiers
-		// into one eligibility rule needs a real product decision (min/max/average), deliberately
-		// deferred. Solo registration's EnsureTierEligible is unaffected.
 
 		var registration = await registrationRepository.FindExistingAsync(tournamentId, null, request.TeamId, ct);
 
-		// Team registrations don't reuse a player's solo `lastRegistration` cache — only an
-		// existing registration on this same team/tournament pair can be reused from.
 		var player1Details = await BuildDetailsAsync(
 			tournamentId, team.Player1Id, request.Player1, registration?.Player1Details, null, ct);
 		var player2Details = await BuildDetailsAsync(
@@ -298,12 +273,9 @@ public class TournamentRegistrationService(
 		}
 	}
 
-	// Port of applyForTournament.js's field validation + screenshot upload/reuse-fallback logic.
-	// `existingDetails` is this same registration's currently-stored details (if re-registering);
-	// `lastReg` is the player's cached last-registration (solo only — see RegisterTeamAsync).
 	private async Task<PlayerRegistrationDetails> BuildDetailsAsync(
 		Guid tournamentId, Guid playerId, PlayerRegistrationDetailsRequest r,
-		PlayerRegistrationDetails? existingDetails, LastRegistrationCache? lastReg, CancellationToken ct)
+		PlayerRegistrationDetails? existingDetails, PlayerRegistrationDetails? lastReg, CancellationToken ct)
 	{
 		if (string.IsNullOrWhiteSpace(r.GameUid) ||
 			string.IsNullOrWhiteSpace(r.DarteNickname) ||
@@ -343,9 +315,6 @@ public class TournamentRegistrationService(
 	private static PlayerRegistrationDetailsDto ToDetailsDto(PlayerRegistrationDetails d) =>
 		new(d.GameUid, d.PrizeAsMoney, d.PrizeUid, d.DarteNickname, d.DartePresetName, d.RosterName, d.RosterScreenshotUrl, d.HoyolabScreenshotUrl);
 
-	// `playerUid` is the Firebase uid corresponding to r.PlayerId, resolved by the caller (either
-	// already in hand from an earlier lookup, or batch/on-demand resolved here) — Type is derived
-	// from which of PlayerId/TeamId is set rather than stored (see TournamentRegistration.cs).
 	private static TournamentRegistrationDto ToDto(TournamentRegistration r, string? playerUid) => new(
 		r.Id, r.TournamentId, r.PlayerId is not null ? TournamentRegistrationType.Solo : TournamentRegistrationType.Team,
 		playerUid, r.TeamId,

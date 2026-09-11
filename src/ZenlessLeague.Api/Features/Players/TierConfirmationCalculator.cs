@@ -1,7 +1,7 @@
 namespace ZenlessLeague.Api.Features.Players;
 
-// Direct port of functions/utils/tierConfirmation.js. Hysteresis (distinct promote/demote
-// thresholds) means a player's tier flags don't flap back and forth around a single cutoff.
+// Hysteresis (distinct promote/demote thresholds) means a player's tier flags don't flap
+// back and forth around a single cutoff.
 public static class TierConfirmationCalculator
 {
 	private const int MidTierPromoteElo = 1200;

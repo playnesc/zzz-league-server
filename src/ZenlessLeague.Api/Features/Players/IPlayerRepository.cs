@@ -2,7 +2,6 @@ namespace ZenlessLeague.Api.Features.Players;
 
 public interface IPlayerRepository
 {
-	Task<PlayerSummary?> GetByUidAsync(string uid, CancellationToken ct = default);
 	Task<PlayerSummary?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
 	// Returns a tracked entity — callers may mutate it in place and call SaveChangesAsync.
@@ -10,7 +9,7 @@ public interface IPlayerRepository
 	Task<Player?> GetEntityByIdAsync(Guid id, CancellationToken ct = default);
 	Task<Player?> GetByNameAsync(string name, CancellationToken ct = default);
 	Task<Player?> GetEntityByDiscordIdAsync(string discordId, CancellationToken ct = default);
-	Task<List<Player>> ListAsync(CancellationToken ct = default);
+	Task<List<Player>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default);
 	Task<Player> CreateAsync(Player player, CancellationToken ct = default);
 	Task<bool> DeleteByUidAsync(string uid, CancellationToken ct = default);
 

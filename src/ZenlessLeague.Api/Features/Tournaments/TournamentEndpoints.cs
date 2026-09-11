@@ -28,42 +28,42 @@ public static class TournamentEndpoints
 		}).RequireAuthorization("Admin");
 
 		group.MapPost("/{id:guid}/close-registration", async (Guid id, ITournamentService service, CancellationToken ct) =>
-			await Handle(id, service, s => s.CloseRegistrationAsync(id, ct))).RequireAuthorization("Admin");
+			await Handle(service.CloseRegistrationAsync(id, ct))).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/challonge-bracket", async (Guid id, ITournamentService service, CancellationToken ct) =>
-			await Handle(id, service, s => s.CreateChallongeBracketAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/challonge-bracket", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
+			await Handle(service.CreateChallongeBracketAsync(id, ct))).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/start", async (Guid id, ITournamentService service, CancellationToken ct) =>
-			await Handle(id, service, s => s.StartAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/start", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
+			await Handle(service.StartAsync(id, ct))).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/finish", async (Guid id, ITournamentService service, CancellationToken ct) =>
-			await Handle(id, service, s => s.FinishAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/finish", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
+			await Handle(service.FinishAsync(id, ct))).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/refresh-games", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		group.MapPost("/{id:guid}/refresh-games", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
 			await service.RefreshGamesAsync(id, ct);
-			return Results.Ok(new { success = true });
+			return Results.NoContent();
 		}).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/increment-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		group.MapPost("/{id:guid}/increment-count", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
 			await service.IncrementTournamentCountAsync(id, seasonal: false, ct);
-			return Results.Ok(new { success = true });
+			return Results.NoContent();
 		}).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/increment-seasonal-count", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		group.MapPost("/{id:guid}/increment-seasonal-count", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
 			await service.IncrementTournamentCountAsync(id, seasonal: true, ct);
-			return Results.Ok(new { success = true });
+			return Results.NoContent();
 		}).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/split", async (Guid id, SplitTournamentRequest request, ITournamentService service, CancellationToken ct) =>
+		group.MapPost("/{id:guid}/split", async (Guid id, SplitTournamentRequest request, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
 			var result = await service.SplitAsync(id, request, ct);
 			return result is null ? Results.NotFound() : Results.Ok(result);
 		}).RequireAuthorization("Admin");
 
-		group.MapDelete("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
+		group.MapDelete("/{id:guid}", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
 			try
 			{
@@ -78,9 +78,9 @@ public static class TournamentEndpoints
 		}).RequireAuthorization("Admin");
 	}
 
-	private static async Task<IResult> Handle(Guid id, ITournamentService service, Func<ITournamentService, Task<TournamentDto?>> action)
+	private static async Task<IResult> Handle(Task<TournamentDto?> action)
 	{
-		var tournament = await action(service);
+		var tournament = await action;
 		return tournament is null ? Results.NotFound() : Results.Ok(tournament);
 	}
 }

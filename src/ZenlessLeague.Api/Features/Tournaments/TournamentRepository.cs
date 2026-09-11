@@ -11,6 +11,11 @@ public interface ITournamentRepository
 	Task<Tournament?> GetByIdAsync(Guid id, CancellationToken ct = default);
 	Task<List<Tournament>> ListAsync(CancellationToken ct = default);
 	Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+
+	// Batch Id -> Name resolution for list-returning callers (e.g. history entries showing which
+	// tournament they belong to) — one query per list, not one per row.
+	Task<Dictionary<Guid, string>> GetNamesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+
 	Task SaveChangesAsync(CancellationToken ct = default);
 }
 
@@ -40,6 +45,19 @@ public class TournamentRepository(AppDbContext context) : ITournamentRepository
 		context.Tournaments.Remove(tournament);
 		await context.SaveChangesAsync(ct);
 		return true;
+	}
+
+	public async Task<Dictionary<Guid, string>> GetNamesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+	{
+		var idList = ids.Distinct().ToList();
+		if (idList.Count == 0)
+		{
+			return [];
+		}
+
+		return await context.Tournaments.AsNoTracking()
+			.Where(t => idList.Contains(t.Id))
+			.ToDictionaryAsync(t => t.Id, t => t.Name, ct);
 	}
 
 	public Task SaveChangesAsync(CancellationToken ct = default) => context.SaveChangesAsync(ct);

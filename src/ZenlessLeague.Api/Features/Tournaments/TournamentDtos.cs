@@ -20,7 +20,6 @@ public record CreateTournamentRequest(
 	string? DiscordRoleName = null,
 	string? DiscordChannelName = null);
 
-// Port of functions/admin/tournament/updateTournament.js's editable field set.
 public record UpdateTournamentRequest(
 	string Name,
 	string? Description,
