@@ -56,6 +56,13 @@ public static class RegistrationEndpoints
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
 		}).RequireAuthorization("Admin");
 
+		group.MapPost("/admin-add-team", async (
+			Guid id, AdminAddTeamRegistrationRequest request, ITournamentRegistrationService service, CancellationToken ct) =>
+		{
+			var registration = await service.AdminAddTeamAsync(id, request.TeamId, ct);
+			return registration is null ? Results.NotFound() : Results.Ok(registration);
+		}).RequireAuthorization("Admin");
+
 		group.MapPut("/{registrationId:guid}/approve", async (
 			Guid id, Guid registrationId, SetApprovedRequest request, ITournamentRegistrationService service, CancellationToken ct) =>
 		{

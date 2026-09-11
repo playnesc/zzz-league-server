@@ -15,15 +15,13 @@ public interface ITournamentLifecycleService
 	// participants are sent to Challonge as "{TeamName} ({Player1} + {Player2})".
 	Task<TournamentDto?> CreateChallongeBracketAsync(Guid id, CancellationToken ct = default);
 
+	// Retries its Challonge/Discord calls as one unit on transient failure — each is individually
+	// idempotent, so retrying is always safe, but this is not a transaction: on a
+	// TournamentLifecycleException, some of those calls (and their DB writes) may have already
+	// gone through. Only the tournament's own State field is guaranteed to not advance until the
+	// whole sequence succeeds.
 	Task<TournamentDto?> StartAsync(Guid id, CancellationToken ct = default);
-
-	// Transactional: Challonge/Discord calls are retried as one unit, and nothing is committed
-	// locally until they all succeed.
 	Task<TournamentDto?> FinishAsync(Guid id, CancellationToken ct = default);
-
-	// Transactional: Challonge/Discord cleanup is retried as one unit, and the tournament is only
-	// deleted locally once cleanup has fully succeeded. A TournamentLifecycleException means
-	// nothing was deleted anywhere.
 	Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
 	Task<SplitTournamentResult?> SplitAsync(Guid id, SplitTournamentRequest request, CancellationToken ct = default);
@@ -63,6 +61,18 @@ public class TournamentLifecycleService(
 		if (approved.Count < 2)
 		{
 			throw new TournamentLifecycleException(isTeamTournament ? "Need at least 2 approved teams." : "Need at least 2 approved players.");
+		}
+
+		// Every approved registration must actually be shaped for this tournament's
+		// RegistrationType (TeamId set for a team tournament, PlayerId set for a solo one) — this
+		// should always hold given RegisterSoloAsync/RegisterTeamAsync/AdminAddAsync/AdminAddTeamAsync
+		// each check it on the way in, but a clean error here beats a null-dereference crash if
+		// that ever gets violated (e.g. by stale data from before that validation existed).
+		var mismatched = approved.Where(r => isTeamTournament ? r.TeamId is null : r.PlayerId is null).ToList();
+		if (mismatched.Count > 0)
+		{
+			throw new TournamentLifecycleException(
+				$"{mismatched.Count} registration(s) don't match this tournament's registration type ({tournament.RegistrationType}) — fix or remove them before creating the bracket.");
 		}
 
 		var tournamentType = tournament.BracketType ?? "single elimination";
@@ -147,12 +157,16 @@ public class TournamentLifecycleService(
 		// Challonge start, match sync, and Discord resource creation are each individually
 		// idempotent (Challonge tolerates being told to start an already-started tournament;
 		// match sync upserts by ChallongeMatchId; Discord resource creation checks for an
-		// existing role/channel id before creating one), so retrying the whole sequence on a
-		// transient failure is safe — no risk of double-creating a role or double-counting a
-		// match. The tournament only flips to Started once every step has actually succeeded; if
-		// retries run out, nothing here has changed the tournament's state, so it's left exactly
-		// as it was (BracketCreated) and the admin can just call start again once the underlying
-		// issue (Discord outage, Challonge hiccup, etc.) is fixed.
+		// existing role/channel id before creating one and skips already-assigned roles), so
+		// retrying the whole sequence on a transient failure is safe — no risk of double-creating
+		// a role or double-counting a match. Note this is idempotent-safe-to-retry, not
+		// transactional: match rows and Discord resources created by an earlier step are NOT
+		// rolled back if a later step fails, so a failed attempt can still leave real matches/a
+		// real role/a real channel behind. The tournament's own State only flips to Started once
+		// every step has actually succeeded, so on failure it's left exactly as it was
+		// (BracketCreated) — the admin can just call start again once the underlying issue
+		// (Discord outage, Challonge hiccup, etc.) is fixed, and whatever already succeeded will
+		// be skipped rather than redone.
 		try
 		{
 			await RetryAsync(async () =>
@@ -165,7 +179,7 @@ public class TournamentLifecycleService(
 		catch (Exception ex)
 		{
 			throw new TournamentLifecycleException(
-				$"Failed to start tournament after retries — no changes were made, tournament is still not started: {ex.Message}");
+				$"Failed to start tournament after retries — tournament is still not started, though some matches/Discord resources may already be set up from this attempt (safe to just retry). {ex.Message}");
 		}
 
 		if (!TournamentStateMachine.HasStarted(tournament.State))
@@ -238,9 +252,10 @@ public class TournamentLifecycleService(
 		// Challonge finalize, the participants fetch, and Discord teardown are each individually
 		// idempotent (finalize tolerates an already-finalized tournament; the participants fetch
 		// is a pure read; Discord delete checks for an existing role/channel id before deleting),
-		// so the whole sequence is safe to retry as one unit. Nothing is committed locally until
-		// every external step here has actually succeeded — if retries run out, the tournament is
-		// left exactly as it was, so the admin can just call finish again once fixed.
+		// so the whole sequence is safe to retry as one unit — but Discord teardown commits its own
+		// DB write as soon as it succeeds, so a later failure in this block doesn't undo it. Only
+		// the tournament's own State is guaranteed to stay unchanged if retries run out, so the
+		// admin can just call finish again once fixed.
 		try
 		{
 			await RetryAsync(async () =>
@@ -266,7 +281,7 @@ public class TournamentLifecycleService(
 		catch (Exception ex)
 		{
 			throw new TournamentLifecycleException(
-				$"Failed to finish tournament after retries — no changes were made, tournament is still not complete: {ex.Message}");
+				$"Failed to finish tournament after retries — tournament is still not complete, though its Discord role/channel may already be torn down from this attempt (safe to just retry). {ex.Message}");
 		}
 
 		tournament.State = TournamentState.Complete;
@@ -343,14 +358,15 @@ public class TournamentLifecycleService(
 			return false;
 		}
 
-		// Challonge and Discord cleanup run as one retryable unit before anything is deleted
-		// locally. Challonge refuses to delete a non-pending tournament, so it's reset to pending
-		// first — Reset/DeleteTournamentAsync/Discord delete are all individually idempotent
-		// (Reset tolerates already being pending, DeleteTournamentAsync tolerates 404, Discord
-		// delete checks for an existing role/channel id), so the whole sequence is safe to retry.
-		// If retries run out, nothing here has deleted anything — the tournament, its Challonge
-		// bracket, and its Discord resources are all left exactly as they were, so the admin can
-		// just retry the whole delete once the underlying issue is fixed.
+		// Challonge and Discord cleanup run as one retryable unit before the tournament row itself
+		// is deleted. Challonge refuses to delete a non-pending tournament, so it's reset to
+		// pending first — Reset/DeleteTournamentAsync/Discord delete are all individually
+		// idempotent (Reset tolerates already being pending, DeleteTournamentAsync tolerates 404,
+		// Discord delete checks for an existing role/channel id), so the whole sequence is safe to
+		// retry — but each Discord delete commits its own DB write as soon as it succeeds, so a
+		// later failure in this block doesn't undo it. The tournament row itself is only ever
+		// deleted once the whole sequence succeeds, so on failure it's guaranteed to still exist
+		// and the admin can just retry the whole delete once the underlying issue is fixed.
 		try
 		{
 			await RetryAsync(async () =>
@@ -368,7 +384,7 @@ public class TournamentLifecycleService(
 		catch (Exception ex)
 		{
 			throw new TournamentLifecycleException(
-				$"Failed to delete tournament after retries — no changes were made, tournament still exists: {ex.Message}");
+				$"Failed to delete tournament after retries — tournament still exists, though its Challonge bracket/Discord role/channel may already be torn down from this attempt (safe to just retry). {ex.Message}");
 		}
 
 		await tournamentRepository.DeleteAsync(id, ct);

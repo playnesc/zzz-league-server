@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -81,19 +82,61 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 	private string RequireGuildId() =>
 		options.Value.GuildId ?? throw new InvalidOperationException("Discord:GuildId is not configured.");
 
+	private const int MaxRateLimitRetries = 5;
+
+	// Discord's 429s are routine under any real concurrency (a handful of role-assignment calls
+	// against the same route is enough to trip it) and tell you exactly how long to wait via
+	// Retry-After — so honor that here and retry the same request, rather than surfacing a 429 as
+	// a hard failure to every caller.
 	private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body, CancellationToken ct)
 	{
 		var botToken = options.Value.BotToken ?? throw new InvalidOperationException("Discord:BotToken is not configured.");
 
-		using var request = new HttpRequestMessage(method, path);
-		request.Headers.Authorization = new AuthenticationHeaderValue("Bot", botToken);
-		if (body is not null)
+		for (var attempt = 0; ; attempt++)
 		{
-			request.Content = JsonContent.Create(body, options: JsonOptions);
+			using var request = new HttpRequestMessage(method, path);
+			request.Headers.Authorization = new AuthenticationHeaderValue("Bot", botToken);
+			if (body is not null)
+			{
+				request.Content = JsonContent.Create(body, options: JsonOptions);
+			}
+
+			var response = await httpClient.SendAsync(request, ct);
+			if (response.StatusCode != HttpStatusCode.TooManyRequests || attempt >= MaxRateLimitRetries)
+			{
+				return response;
+			}
+
+			var retryAfter = await GetRetryAfterAsync(response, ct);
+			response.Dispose();
+			await Task.Delay(retryAfter, ct);
+		}
+	}
+
+	private static async Task<TimeSpan> GetRetryAfterAsync(HttpResponseMessage response, CancellationToken ct)
+	{
+		if (response.Headers.TryGetValues("Retry-After", out var values) &&
+			double.TryParse(values.FirstOrDefault(), out var headerSeconds))
+		{
+			return TimeSpan.FromSeconds(headerSeconds);
 		}
 
-		return await httpClient.SendAsync(request, ct);
+		try
+		{
+			var body = await response.Content.ReadFromJsonAsync<DiscordRateLimitResponse>(JsonOptions, ct);
+			if (body?.RetryAfter is double bodySeconds)
+			{
+				return TimeSpan.FromSeconds(bodySeconds);
+			}
+		}
+		catch (JsonException)
+		{
+		}
+
+		return TimeSpan.FromSeconds(1);
 	}
+
+	private record DiscordRateLimitResponse([property: JsonPropertyName("retry_after")] double? RetryAfter);
 
 	private static async Task ThrowIfErrorAsync(HttpResponseMessage response, CancellationToken ct)
 	{

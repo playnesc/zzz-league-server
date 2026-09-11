@@ -14,7 +14,8 @@ public class MatchServiceTests
 	private static AppDbContext CreateContext() =>
 		new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
-	private static async Task<(Tournament Tournament, TournamentMatch Match, Player P1, Player P2)> SeedAsync(AppDbContext context, string matchState = "open")
+	private static async Task<(Tournament Tournament, TournamentMatch Match, Player P1, Player P2)> SeedAsync(
+		AppDbContext context, string matchState = "open", TournamentGameMode gameMode = TournamentGameMode.ShiyuDefense)
 	{
 		var p1 = TestPlayers.Create(context, "p1");
 		var p2 = TestPlayers.Create(context, "p2");
@@ -24,6 +25,7 @@ public class MatchServiceTests
 			Id = Guid.NewGuid(),
 			Name = "Test Cup",
 			RegistrationType = TournamentRegistrationType.Solo,
+			GameMode = gameMode,
 			State = TournamentState.Started,
 			ChallongeTournamentId = "ctid",
 			BracketType = "single elimination",
@@ -184,6 +186,34 @@ public class MatchServiceTests
 
 		await Assert.ThrowsAsync<MatchForbiddenException>(() =>
 			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "someone-else", new SubmitPlayerResultRequest("1:00", "1:30")));
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_DeadlyAssault_HigherScoreWins()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context, gameMode: TournamentGameMode.DeadlyAssault);
+		var (service, challonge, _) = CreateService(context);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c2", "c1", "c2")];
+
+		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("1000", "2000"));
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("1000", "2000"));
+
+		Assert.Equal("complete", afterP2!.State);
+		Assert.Equal("p2", afterP2.WinnerPlayerId); // 2000 > 1000
+	}
+
+	[Fact]
+	public async Task SetAdminResultAsync_DeadlyAssault_HigherScoreWins()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context, gameMode: TournamentGameMode.DeadlyAssault);
+		var (service, challonge, _) = CreateService(context);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		var result = await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest("2000", "1000"));
+
+		Assert.Equal("p1", result!.WinnerPlayerId); // 2000 > 1000
 	}
 
 	[Fact]

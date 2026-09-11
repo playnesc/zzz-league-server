@@ -420,6 +420,9 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<int?>("DivisionIndex")
                         .HasColumnType("integer");
 
+                    b.Property<int>("GameMode")
+                        .HasColumnType("integer");
+
                     b.Property<string>("LegacyId")
                         .HasColumnType("text");
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
@@ -29,7 +30,8 @@ public class TournamentDiscordResourcesServiceTests
 			new TeamRepository(context),
 			new PlayerRepository(context),
 			discord,
-			Options.Create(TestOptions));
+			Options.Create(TestOptions),
+			NullLogger<TournamentDiscordResourcesService>.Instance);
 		return (service, discord);
 	}
 
@@ -95,6 +97,46 @@ public class TournamentDiscordResourcesServiceTests
 		// Only the Discord-linked approved player gets the role.
 		Assert.Single(discord.AddedMemberRoles);
 		Assert.Contains(("d1", "role-1"), discord.AddedMemberRoles);
+	}
+
+	[Fact]
+	public async Task CreateResourcesAsync_OneMemberUnknownToDiscord_SkipsThemAndStillGrantsTheRest()
+	{
+		await using var context = CreateContext();
+		var tournament = new Tournament
+		{
+			Id = Guid.NewGuid(), Name = "Cup", RegistrationType = TournamentRegistrationType.Solo,
+			DiscordRoleName = "Cup Player",
+		};
+		context.Tournaments.Add(tournament);
+
+		var p1 = TestPlayers.Create(context, "p1");
+		p1.DiscordId = "d1"; // left the guild since linking — Discord will 404 this one
+		var p2 = TestPlayers.Create(context, "p2");
+		p2.DiscordId = "d2";
+		context.TournamentRegistrations.Add(new TournamentRegistration
+		{
+			Id = Guid.NewGuid(), TournamentId = tournament.Id, PlayerId = p1.Id,
+			Player1Details = new PlayerRegistrationDetails { GameUid = "g", DarteNickname = "n", DartePresetName = "p", RosterName = "r" },
+			Approved = true, RegisteredAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+		});
+		context.TournamentRegistrations.Add(new TournamentRegistration
+		{
+			Id = Guid.NewGuid(), TournamentId = tournament.Id, PlayerId = p2.Id,
+			Player1Details = new PlayerRegistrationDetails { GameUid = "g", DarteNickname = "n", DartePresetName = "p", RosterName = "r" },
+			Approved = true, RegisteredAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+		});
+		await context.SaveChangesAsync();
+
+		var (service, discord) = CreateService(context);
+		discord.UnknownMemberDiscordIds.Add("d1");
+
+		await service.CreateResourcesAsync(tournament.Id);
+
+		var reloaded = await context.Tournaments.SingleAsync(t => t.Id == tournament.Id);
+		Assert.Equal("role-1", reloaded.DiscordRoleId); // role creation itself still succeeded
+		Assert.Single(discord.AddedMemberRoles);
+		Assert.Contains(("d2", "role-1"), discord.AddedMemberRoles);
 	}
 
 	[Fact]

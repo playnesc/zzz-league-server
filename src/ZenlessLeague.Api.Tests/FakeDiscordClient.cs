@@ -17,8 +17,17 @@ public class FakeDiscordClient : IDiscordClient
 	// Lets tests simulate N transient failures before CreateGuildRoleAsync finally succeeds.
 	public int CreateRoleFailuresRemaining { get; set; }
 
+	// Lets tests simulate AddMemberRoleAsync 404ing for specific members (e.g. they left the
+	// guild) — a real "Unknown Member" response shape.
+	public HashSet<string> UnknownMemberDiscordIds { get; } = [];
+
 	public Task AddMemberRoleAsync(string discordUserId, string roleId, CancellationToken ct = default)
 	{
+		if (UnknownMemberDiscordIds.Contains(discordUserId))
+		{
+			throw new DiscordApiException(404, "{\"message\": \"Unknown Member\", \"code\": 10007}");
+		}
+
 		AddedMemberRoles.Add((discordUserId, roleId));
 		return Task.CompletedTask;
 	}

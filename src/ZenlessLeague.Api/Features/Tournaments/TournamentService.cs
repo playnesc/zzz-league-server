@@ -38,6 +38,7 @@ public class TournamentService(
 			MinTier = request.MinTier,
 			MaxTier = request.MaxTier,
 			RegistrationType = request.RegistrationType,
+			GameMode = request.GameMode,
 			BracketType = request.BracketType,
 			Visible = request.Visible,
 			OverrideEloChange = request.OverrideEloChange,
@@ -133,7 +134,7 @@ public class TournamentService(
 		t.Id, t.Name, t.Description,
 		t.RegistrationStartDate, t.RegistrationEndDate, t.TournamentStartDate, t.TournamentEndDate,
 		t.MinCost, t.MaxCost, t.MinCharacters, t.MinTier, t.MaxTier,
-		t.State, t.RegistrationType, t.Visible, t.BracketType,
+		t.State, t.RegistrationType, t.GameMode, t.Visible, t.BracketType,
 		t.ChallongeTournamentId, t.ChallongeTournamentUrl, t.ChallongeWinnerId, winnerUid, t.WinnerTeamId,
 		t.DivisionGroupId, t.DivisionIndex,
 		t.OverrideEloChange, t.ConsolationMatchesTargetRank, t.DiscordRoleName, t.DiscordChannelName);

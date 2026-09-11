@@ -172,4 +172,68 @@ public class TournamentRegistrationServiceTests
 		await Assert.ThrowsAsync<TournamentValidationException>(() =>
 			service.RegisterTeamAsync(tournament.Id, new TeamRegistrationRequest(team.Id, Details(), Details())));
 	}
+
+	[Fact]
+	public async Task AdminAddAsync_TeamTournament_Throws()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTeamTournamentAsync(context);
+		TestPlayers.Create(context, "p1");
+		await context.SaveChangesAsync();
+		var (service, _, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<TournamentValidationException>(() => service.AdminAddAsync(tournament.Id, "p1"));
+	}
+
+	[Fact]
+	public async Task AdminAddAsync_SoloTournament_CreatesApprovedRegistration()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedSoloTournamentAsync(context);
+		TestPlayers.Create(context, "p1");
+		await context.SaveChangesAsync();
+		var (service, _, notifier) = CreateService(context);
+
+		var result = await service.AdminAddAsync(tournament.Id, "p1");
+
+		Assert.NotNull(result);
+		Assert.True(result!.Approved);
+		Assert.Equal("p1", result.PlayerId);
+		Assert.Contains(notifier.RegistrationChanged, e => e.TournamentId == tournament.Id);
+	}
+
+	[Fact]
+	public async Task AdminAddTeamAsync_SoloTournament_Throws()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedSoloTournamentAsync(context);
+		var p1 = TestPlayers.Create(context, "p1");
+		var p2 = TestPlayers.Create(context, "p2");
+		var team = new Team { Id = Guid.NewGuid(), Name = "Duo", Player1Id = p1.Id, Player2Id = p2.Id, CreatedAt = DateTimeOffset.UtcNow };
+		context.Teams.Add(team);
+		await context.SaveChangesAsync();
+		var (service, _, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<TournamentValidationException>(() => service.AdminAddTeamAsync(tournament.Id, team.Id));
+	}
+
+	[Fact]
+	public async Task AdminAddTeamAsync_TeamTournament_CreatesApprovedRegistration()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTeamTournamentAsync(context);
+		var p1 = TestPlayers.Create(context, "p1");
+		var p2 = TestPlayers.Create(context, "p2");
+		var team = new Team { Id = Guid.NewGuid(), Name = "Duo", Player1Id = p1.Id, Player2Id = p2.Id, CreatedAt = DateTimeOffset.UtcNow };
+		context.Teams.Add(team);
+		await context.SaveChangesAsync();
+		var (service, _, notifier) = CreateService(context);
+
+		var result = await service.AdminAddTeamAsync(tournament.Id, team.Id);
+
+		Assert.NotNull(result);
+		Assert.True(result!.Approved);
+		Assert.Equal(team.Id, result.TeamId);
+		Assert.Contains(notifier.RegistrationChanged, e => e.TournamentId == tournament.Id);
+	}
 }

@@ -26,6 +26,8 @@ public record PlayerRegistrationDetailsDto(
 
 public record AdminAddRegistrationRequest(string PlayerId);
 
+public record AdminAddTeamRegistrationRequest(Guid TeamId);
+
 public record SetApprovedRequest(bool Approved);
 
 public record TournamentRegistrationDto(

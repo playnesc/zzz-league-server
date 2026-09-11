@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
@@ -22,5 +23,6 @@ public static class TestDiscord
 			new TeamRepository(context),
 			new PlayerRepository(context),
 			discordClient ?? new FakeDiscordClient(),
-			Options.Create(new DiscordOptions()));
+			Options.Create(new DiscordOptions()),
+			NullLogger<TournamentDiscordResourcesService>.Instance);
 }

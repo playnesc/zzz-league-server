@@ -14,6 +14,7 @@ public interface ITournamentRegistrationService
 	Task<TournamentRegistrationDto?> GetAsync(Guid tournamentId, Guid id, CancellationToken ct = default);
 
 	Task<TournamentRegistrationDto?> AdminAddAsync(Guid tournamentId, string playerId, CancellationToken ct = default);
+	Task<TournamentRegistrationDto?> AdminAddTeamAsync(Guid tournamentId, Guid teamId, CancellationToken ct = default);
 	Task<TournamentRegistrationDto?> SetApprovedAsync(Guid tournamentId, Guid registrationId, bool approved, CancellationToken ct = default);
 	Task<bool?> CancelAsync(Guid tournamentId, string callerPlayerId, CancellationToken ct = default);
 }
@@ -173,6 +174,11 @@ public class TournamentRegistrationService(
 			throw new TournamentValidationException("Tournament has already started.");
 		}
 
+		if (tournament.RegistrationType != TournamentRegistrationType.Solo)
+		{
+			throw new TournamentValidationException("This tournament requires a team registration — use admin-add-team instead.");
+		}
+
 		var player = await playerRepository.GetEntityByUidAsync(playerId, ct)
 			?? throw new TournamentValidationException($"Player '{playerId}' does not exist.");
 
@@ -186,15 +192,7 @@ public class TournamentRegistrationService(
 			Id = Guid.NewGuid(),
 			TournamentId = tournamentId,
 			PlayerId = player.Id,
-			Player1Details = new PlayerRegistrationDetails
-			{
-				GameUid = string.Empty,
-				PrizeAsMoney = false,
-				PrizeUid = null,
-				DarteNickname = player.Name,
-				DartePresetName = string.Empty,
-				RosterName = string.Empty,
-			},
+			Player1Details = StubDetails(player.Name),
 			Approved = true,
 			RegisteredAt = DateTimeOffset.UtcNow,
 			UpdatedAt = DateTimeOffset.UtcNow,
@@ -204,6 +202,65 @@ public class TournamentRegistrationService(
 		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
 		return ToDto(registration, player.Uid);
 	}
+
+	public async Task<TournamentRegistrationDto?> AdminAddTeamAsync(Guid tournamentId, Guid teamId, CancellationToken ct = default)
+	{
+		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
+		if (tournament is null)
+		{
+			return null;
+		}
+
+		if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+		{
+			throw new TournamentValidationException("Tournament has already started.");
+		}
+
+		if (tournament.RegistrationType != TournamentRegistrationType.Team)
+		{
+			throw new TournamentValidationException("This tournament requires a solo registration — use admin-add instead.");
+		}
+
+		var team = await teamRepository.GetByIdAsync(teamId, ct)
+			?? throw new TournamentValidationException($"Team '{teamId}' does not exist.");
+		var player1 = await playerRepository.GetByIdAsync(team.Player1Id, ct)
+			?? throw new TournamentValidationException($"Player '{team.Player1Id}' does not exist.");
+		var player2 = await playerRepository.GetByIdAsync(team.Player2Id, ct)
+			?? throw new TournamentValidationException($"Player '{team.Player2Id}' does not exist.");
+
+		if (await registrationRepository.FindExistingAsync(tournamentId, null, teamId, ct) is not null)
+		{
+			throw new TournamentValidationException("Team is already registered.");
+		}
+
+		var registration = new TournamentRegistration
+		{
+			Id = Guid.NewGuid(),
+			TournamentId = tournamentId,
+			TeamId = teamId,
+			Player1Details = StubDetails(player1.Name),
+			Player2Details = StubDetails(player2.Name),
+			Approved = true,
+			RegisteredAt = DateTimeOffset.UtcNow,
+			UpdatedAt = DateTimeOffset.UtcNow,
+		};
+
+		await registrationRepository.CreateAsync(registration, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+		return ToDto(registration, playerUid: null);
+	}
+
+	// Admin-added registrations skip the usual roster/screenshot requirements (BuildDetailsAsync)
+	// — there's no form input to pull them from — leaving everything but the player's name blank.
+	private static PlayerRegistrationDetails StubDetails(string darteNickname) => new()
+	{
+		GameUid = string.Empty,
+		PrizeAsMoney = false,
+		PrizeUid = null,
+		DarteNickname = darteNickname,
+		DartePresetName = string.Empty,
+		RosterName = string.Empty,
+	};
 
 	public async Task<TournamentRegistrationDto?> SetApprovedAsync(Guid tournamentId, Guid registrationId, bool approved, CancellationToken ct = default)
 	{

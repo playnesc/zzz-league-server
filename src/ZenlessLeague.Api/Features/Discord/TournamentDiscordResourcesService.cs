@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
@@ -19,7 +20,8 @@ public class TournamentDiscordResourcesService(
 	ITeamRepository teamRepository,
 	IPlayerRepository playerRepository,
 	IDiscordClient discordClient,
-	IOptions<DiscordOptions> options) : ITournamentDiscordResourcesService
+	IOptions<DiscordOptions> options,
+	ILogger<TournamentDiscordResourcesService> logger) : ITournamentDiscordResourcesService
 {
 	private const int PermissionViewChannel = 0x400;
 	private const int PermissionSendMessages = 0x800;
@@ -62,8 +64,24 @@ public class TournamentDiscordResourcesService(
 
 		if (roleId is not null)
 		{
+			// Sequential, not Task.WhenAll — these all hit the same Discord rate-limit bucket, so
+			// firing them concurrently just means every one of them 429s at once instead of one
+			// request at a time each paying its own (usually nonexistent) wait.
 			var discordIds = await GetApprovedDiscordIdsAsync(tournamentId, ct);
-			await Task.WhenAll(discordIds.Select(discordId => discordClient.AddMemberRoleAsync(discordId, roleId, ct)));
+			foreach (var discordId in discordIds)
+			{
+				try
+				{
+					await discordClient.AddMemberRoleAsync(discordId, roleId, ct);
+				}
+				catch (DiscordApiException ex)
+				{
+					// One player's Discord state (left the server, revoked the bot's access, etc.)
+					// shouldn't block the tournament from starting for everyone else — log and move
+					// on rather than letting this abort the whole retry sequence.
+					logger.LogWarning(ex, "Failed to assign Discord role {RoleId} to member {DiscordId} for tournament {TournamentId} — skipping.", roleId, discordId, tournamentId);
+				}
+			}
 		}
 	}
 

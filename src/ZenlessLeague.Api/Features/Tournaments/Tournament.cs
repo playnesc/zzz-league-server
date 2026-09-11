@@ -4,6 +4,10 @@ public enum TournamentRegistrationType { Solo, Team }
 
 public enum TournamentState { Registration, RegistrationClosed, BracketCreated, Started, AwaitingReview, Complete }
 
+// Determines how MatchService compares ResultP1/ResultP2 to decide a winner: ShiyuDefense is a
+// timed run (lower time wins), DeadlyAssault is a score attack (higher score wins).
+public enum TournamentGameMode { ShiyuDefense, DeadlyAssault }
+
 // Scalar fields only — bracket-result concerns (`matches`/`winnerId`) are a separate entity
 // (TournamentMatch), not stored here.
 public class Tournament
@@ -25,6 +29,7 @@ public class Tournament
 
 	public TournamentState State { get; set; } = TournamentState.Registration;
 	public TournamentRegistrationType RegistrationType { get; set; }
+	public TournamentGameMode GameMode { get; set; } = TournamentGameMode.ShiyuDefense;
 	public bool Visible { get; set; } = true;
 
 	public string? BracketType { get; set; }

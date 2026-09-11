@@ -209,7 +209,7 @@ public class MatchService(
 			var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
 				?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
 
-			var p1Win = ParseMinutes(match.ResultP1!) < ParseMinutes(match.ResultP2!);
+			var p1Win = IsP1Win(tournament.GameMode, match.ResultP1!, match.ResultP2!);
 
 			var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
 				tournament, match, p1Win, "0",
@@ -281,7 +281,7 @@ public class MatchService(
 
 			finalResultP1 = request.ResultP1.Trim();
 			finalResultP2 = request.ResultP2.Trim();
-			p1Win = ParseMinutes(finalResultP1) < ParseMinutes(finalResultP2);
+			p1Win = IsP1Win(tournament.GameMode, finalResultP1, finalResultP2);
 		}
 
 		var uploadedScreenshotUrl = request.ResultScreenshot is not null
@@ -425,8 +425,22 @@ public class MatchService(
 	private static Guid? ResolveTeamId(string? challongeParticipantId, Dictionary<string, Guid> challongeToTeamId) =>
 		challongeParticipantId is not null && challongeToTeamId.TryGetValue(challongeParticipantId, out var teamId) ? teamId : null;
 
-	// Despite the name, this parses "H:MM" as hours*60+minutes, not seconds — matches the
-	// ResultP1/ResultP2 "lower time wins" race-format semantics (see TournamentMatch).
+	private static bool IsP1Win(TournamentGameMode mode, string resultP1, string resultP2)
+	{
+		try
+		{
+			return mode == TournamentGameMode.DeadlyAssault
+				? int.Parse(resultP1) > int.Parse(resultP2)
+				: ParseMinutes(resultP1) < ParseMinutes(resultP2);
+		}
+		catch (Exception ex) when (ex is FormatException or OverflowException or IndexOutOfRangeException)
+		{
+			throw new MatchValidationException(
+				$"'{resultP1}'/'{resultP2}' is not a valid result for this tournament's game mode ({mode}).");
+		}
+	}
+
+	// Despite the name, this parses "H:MM" as hours*60+minutes, not seconds.
 	private static int ParseMinutes(string time)
 	{
 		var parts = time.Split(':');
