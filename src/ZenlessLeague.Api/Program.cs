@@ -152,13 +152,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 // AddSingleton factory still runs as soon as anything holding a FirebaseStorageClient is
 // constructed (e.g. MatchService, pulled in by every TournamentService, including read-only
 // endpoints), which defeats the "only fails when Storage is actually used" intent. Lazy<T> defers
-// the GoogleCredential.FromFile call to the first real .Value access inside FirebaseStorageClient.
+// the GoogleCredential.FromJson call to the first real .Value access inside FirebaseStorageClient.
 builder.Services.AddSingleton(_ => new Lazy<GoogleCredential>(() =>
 {
-	var credentialsPath = builder.Configuration["Firebase:CredentialsPath"]
-		?? throw new InvalidOperationException("Firebase:CredentialsPath is not configured.");
 #pragma warning disable CS0618
-	return GoogleCredential.FromFile(credentialsPath)
+	return GoogleCredential.FromJson(FirebaseCredentials.ResolveJson(builder.Configuration))
 		.CreateScoped("https://www.googleapis.com/auth/devstorage.read_write");
 #pragma warning restore CS0618
 }));

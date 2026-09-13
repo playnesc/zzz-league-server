@@ -13,10 +13,10 @@ public interface IFirebaseCustomTokenSigner
 }
 
 // A Firebase custom token is just a self-signed RS256 JWT per Firebase's documented format — no
-// Google API call is involved in minting one. Signed with the same service account file already
-// used for FirebaseStorageClient (Firebase:CredentialsPath); only client_email/private_key are
-// needed here, so this reads the file directly instead of pulling in the full FirebaseAdmin SDK
-// for one operation.
+// Google API call is involved in minting one. Signed with the same service account credentials
+// already used for FirebaseStorageClient (see FirebaseCredentials); only client_email/private_key
+// are needed here, so this parses the JSON directly instead of pulling in the full FirebaseAdmin
+// SDK for one operation.
 //
 // Built by hand (header/payload/signature) rather than via JwtSecurityToken/JwtPayload — Firebase
 // is strict about the exact claim set (iss/sub/aud/iat/exp/uid, nothing more, nothing missing),
@@ -36,10 +36,7 @@ public class FirebaseCustomTokenSigner : IFirebaseCustomTokenSigner
 	{
 		credentials = new Lazy<(string, RSA)>(() =>
 		{
-			var path = configuration["Firebase:CredentialsPath"]
-				?? throw new InvalidOperationException("Firebase:CredentialsPath is not configured.");
-
-			using var document = JsonDocument.Parse(File.ReadAllText(path));
+			using var document = JsonDocument.Parse(FirebaseCredentials.ResolveJson(configuration));
 			var root = document.RootElement;
 			var clientEmail = root.GetProperty("client_email").GetString()
 				?? throw new InvalidOperationException("Firebase service account file is missing client_email.");

@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/secrets/
+.git/
+.github/
+example-darte/
+**/*.Development.json
