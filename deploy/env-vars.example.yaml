@@ -1,0 +1,22 @@
+# Copy to env-vars.yaml (same directory) and fill in real values -- that file is gitignored and
+# never committed, same convention as ../src/ZenlessLeague.Api/secrets/firebase-service-account.json.
+# See deploy.sh, which passes this to `gcloud run deploy --env-vars-file`.
+ASPNETCORE_ENVIRONMENT: "Production"
+
+# Neon (or any Postgres) connection string, Npgsql keyword=value format -- NOT the postgresql://
+# URI format most providers hand you by default; convert it (see README note in deploy.sh) or
+# Npgsql will fail to parse it.
+ConnectionStrings__Default: "REPLACE"
+
+# From `dotnet user-secrets list` in src/ZenlessLeague.Api, or the existing DISCORD_BOT_TOKEN /
+# DISCORD_CLIENT_SECRET / DISCORD_GUILD_ID / CHALLONGE_API_KEY secrets in Secret Manager (still
+# used directly by the legacy Cloud Functions -- read-only there, never delete them).
+Discord__BotToken: "REPLACE"
+Discord__ClientSecret: "REPLACE"
+Discord__GuildId: "REPLACE"
+Challonge__ApiKey: "REPLACE"
+
+# The full contents of src/ZenlessLeague.Api/secrets/firebase-service-account.json, minified to
+# one line, single-quoted (its \n-escaped private_key is preserved literally inside a YAML
+# single-quoted scalar -- do not switch this to double-quoted).
+Firebase__CredentialsJson: 'REPLACE'

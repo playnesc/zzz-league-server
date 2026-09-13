@@ -18,6 +18,9 @@ public class MigrationReport
 	public int Registrations { get; set; }
 	public int Matches { get; set; }
 	public int HistoryEntries { get; set; }
+
+	// 0 or 1 (singleton row) -- 1 means RTDB's "timer" path had a value and it was written.
+	public int SeasonTimer { get; set; }
 }
 
 // Reads each RTDB subtree once and upserts into Postgres, in FK-dependency order: Players (must
@@ -60,6 +63,8 @@ public class MigrationRunner(AppDbContext db, IRtdbReader rtdb, bool dryRun)
 
 			report.HistoryEntries = await MigrateHistoryAsync(ct);
 			await LinkMatchHistoryEntriesAsync(matchHistoryLinks, ct);
+
+			report.SeasonTimer = await MigrateSeasonTimerAsync(ct);
 
 			if (transaction is not null)
 			{
@@ -345,6 +350,32 @@ public class MigrationRunner(AppDbContext db, IRtdbReader rtdb, bool dryRun)
 
 		await db.SaveChangesAsync(ct);
 		return count;
+	}
+
+	// RTDB's "timer" path is a bare unix-millis number (functions/admin/setTimer.js just did
+	// db.ref("timer").set(timer)), not an object-map node like the rest of this file's sources —
+	// same singleton find-or-create as SeasonTimerRepository.SetEndTimestampAsync.
+	private async Task<int> MigrateSeasonTimerAsync(CancellationToken ct)
+	{
+		var timerMillis = await rtdb.GetValueAsync<long?>("timer", ct);
+		if (timerMillis is null)
+		{
+			return 0;
+		}
+
+		var endTimestamp = LegacyMapper.ToDateTimeOffset(timerMillis);
+		var timer = await db.SeasonTimers.FindAsync([SeasonTimer.SingletonId], ct);
+		if (timer is null)
+		{
+			db.SeasonTimers.Add(new SeasonTimer { EndTimestamp = endTimestamp });
+		}
+		else
+		{
+			timer.EndTimestamp = endTimestamp;
+		}
+
+		await db.SaveChangesAsync(ct);
+		return 1;
 	}
 
 	private async Task LinkMatchHistoryEntriesAsync(List<(Guid MatchId, string LegacyHistoryKey)> links, CancellationToken ct)

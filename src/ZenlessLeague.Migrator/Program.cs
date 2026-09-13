@@ -50,5 +50,6 @@ Console.WriteLine($"  ChallongeParticipants: {report.ChallongeParticipants}");
 Console.WriteLine($"  Registrations:		 {report.Registrations}");
 Console.WriteLine($"  Matches:				 {report.Matches}");
 Console.WriteLine($"  HistoryEntries:		 {report.HistoryEntries}");
+Console.WriteLine($"  SeasonTimer:			 {report.SeasonTimer}");
 Console.WriteLine();
 Console.WriteLine(dryRun ? "Dry run complete — no changes were committed." : "Migration committed.");
