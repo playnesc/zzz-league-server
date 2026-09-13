@@ -22,6 +22,1485 @@ namespace ZenlessLeague.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Agents.AgentCostRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasColumnType("character varying(100)");
+
+                    b.PrimitiveCollection<int[]>("Costs")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<int?>("PotentialTier")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId")
+                        .IsUnique()
+                        .HasFilter("\"PotentialTier\" IS NULL");
+
+                    b.HasIndex("AgentId", "PotentialTier")
+                        .IsUnique();
+
+                    b.ToTable("AgentCostRows");
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Catalog.AgentCatalogEntry", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Rarity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Specialty")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AgentCatalogEntries");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = "evelyn-chevalier",
+                            Name = "Evelyn",
+                            Rarity = 4,
+                            SortOrder = 0,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "cissia",
+                            Name = "Cissia",
+                            Rarity = 4,
+                            SortOrder = 1,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "sigrid-de-lazur",
+                            Name = "Sigrid",
+                            Rarity = 4,
+                            SortOrder = 2,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "soldier-0-anby",
+                            Name = "Soldier 0 - Anby",
+                            Rarity = 4,
+                            SortOrder = 3,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "pyrois",
+                            Name = "Pyrois",
+                            Rarity = 4,
+                            SortOrder = 4,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "asaba-harumasa",
+                            Name = "Harumasa",
+                            Rarity = 4,
+                            SortOrder = 5,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "orphie-magnusson-magus",
+                            Name = "Orphie & Magus",
+                            Rarity = 4,
+                            SortOrder = 6,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "ellen-joe",
+                            Name = "Ellen",
+                            Rarity = 4,
+                            SortOrder = 7,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "hugo-vlad",
+                            Name = "Hugo",
+                            Rarity = 4,
+                            SortOrder = 8,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "nekomiya-mana",
+                            Name = "Nekomata",
+                            Rarity = 4,
+                            SortOrder = 9,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "soldier-11",
+                            Name = "Soldier 11",
+                            Rarity = 4,
+                            SortOrder = 10,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "seed",
+                            Name = "Seed",
+                            Rarity = 4,
+                            SortOrder = 11,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "billy-kid",
+                            Name = "Billy",
+                            Rarity = 3,
+                            SortOrder = 12,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "anton-ivanov",
+                            Name = "Anton",
+                            Rarity = 3,
+                            SortOrder = 13,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "corin-wickes",
+                            Name = "Corin",
+                            Rarity = 3,
+                            SortOrder = 14,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "zhu-yuan",
+                            Name = "Zhu Yuan",
+                            Rarity = 4,
+                            SortOrder = 15,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "ye-shunguang",
+                            Name = "Ye Shunguang",
+                            Rarity = 4,
+                            SortOrder = 16,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "roxy-ifrita-pryce",
+                            Name = "Roxy Ifrita Pryce",
+                            Rarity = 4,
+                            SortOrder = 17,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "von-lycaon",
+                            Name = "Lycaon",
+                            Rarity = 4,
+                            SortOrder = 18,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "trigger",
+                            Name = "Trigger",
+                            Rarity = 4,
+                            SortOrder = 19,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "qingyi",
+                            Name = "Qingyi",
+                            Rarity = 4,
+                            SortOrder = 20,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "lighter",
+                            Name = "Lighter",
+                            Rarity = 4,
+                            SortOrder = 21,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "koleda-belobog",
+                            Name = "Koleda",
+                            Rarity = 4,
+                            SortOrder = 22,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "nangong-yu",
+                            Name = "Nangong Yu",
+                            Rarity = 4,
+                            SortOrder = 23,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "ju-fufu",
+                            Name = "Ju Fufu",
+                            Rarity = 4,
+                            SortOrder = 24,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "dialyn",
+                            Name = "Dialyn",
+                            Rarity = 4,
+                            SortOrder = 25,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "norma-hollowell",
+                            Name = "Norma",
+                            Rarity = 4,
+                            SortOrder = 26,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "pulchra-fellini",
+                            Name = "Pulchra",
+                            Rarity = 3,
+                            SortOrder = 27,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "anby-demara",
+                            Name = "Anby",
+                            Rarity = 3,
+                            SortOrder = 28,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "hoshimi-miyabi",
+                            Name = "Miyabi",
+                            Rarity = 4,
+                            SortOrder = 29,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "jane-doe",
+                            Name = "Jane",
+                            Rarity = 4,
+                            SortOrder = 30,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "promeia",
+                            Name = "Promeia",
+                            Rarity = 4,
+                            SortOrder = 31,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "burnice-white",
+                            Name = "Burnice",
+                            Rarity = 4,
+                            SortOrder = 32,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "remielle-dan",
+                            Name = "Remielle",
+                            Rarity = 4,
+                            SortOrder = 33,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "grace-howard",
+                            Name = "Grace",
+                            Rarity = 4,
+                            SortOrder = 34,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "aria",
+                            Name = "Aria",
+                            Rarity = 4,
+                            SortOrder = 35,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "alice-thymefield",
+                            Name = "Alice",
+                            Rarity = 4,
+                            SortOrder = 36,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "piper-wheel",
+                            Name = "Piper",
+                            Rarity = 3,
+                            SortOrder = 37,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "tsukishiro-yanagi",
+                            Name = "Yanagi",
+                            Rarity = 4,
+                            SortOrder = 38,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "vivian-banshee",
+                            Name = "Vivian",
+                            Rarity = 4,
+                            SortOrder = 39,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "velina-airgid",
+                            Name = "Velina",
+                            Rarity = 4,
+                            SortOrder = 40,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "sunna",
+                            Name = "Sunna",
+                            Rarity = 4,
+                            SortOrder = 41,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "astra-yao",
+                            Name = "Astra Yao",
+                            Rarity = 4,
+                            SortOrder = 42,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "alexandrina-sebastiane",
+                            Name = "Rina",
+                            Rarity = 4,
+                            SortOrder = 43,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "ukinami-yuzuha",
+                            Name = "Yuzuha",
+                            Rarity = 4,
+                            SortOrder = 44,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "lucia-elowen",
+                            Name = "Lucia",
+                            Rarity = 4,
+                            SortOrder = 45,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "nicole-demara",
+                            Name = "Nicole",
+                            Rarity = 3,
+                            SortOrder = 46,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "soukaku",
+                            Name = "Soukaku",
+                            Rarity = 3,
+                            SortOrder = 47,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "luciana-de-montefio",
+                            Name = "Lucy",
+                            Rarity = 3,
+                            SortOrder = 48,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "caesar-king",
+                            Name = "Caesar",
+                            Rarity = 4,
+                            SortOrder = 49,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "zhao",
+                            Name = "Zhao",
+                            Rarity = 4,
+                            SortOrder = 50,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "seth-lowell",
+                            Name = "Seth",
+                            Rarity = 3,
+                            SortOrder = 51,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "pan-yinhu",
+                            Name = "Pan Yinhu",
+                            Rarity = 3,
+                            SortOrder = 52,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "ben-bigger",
+                            Name = "Ben",
+                            Rarity = 3,
+                            SortOrder = 53,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "banyue",
+                            Name = "Banyue",
+                            Rarity = 4,
+                            SortOrder = 54,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "starlight-billy-kid",
+                            Name = "Starlight - Billy",
+                            Rarity = 4,
+                            SortOrder = 55,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "yixuan",
+                            Name = "Yixuan",
+                            Rarity = 4,
+                            SortOrder = 56,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "yidhari-murphy",
+                            Name = "Yidhari",
+                            Rarity = 4,
+                            SortOrder = 57,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "komano-manato",
+                            Name = "Manato",
+                            Rarity = 3,
+                            SortOrder = 58,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "claret-flint",
+                            Name = "Claret Flint",
+                            Rarity = 5,
+                            SortOrder = 59,
+                            Specialty = 6
+                        });
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Catalog.EngineCatalogEntry", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Rarity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Specialty")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EngineCatalogEntries");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = "12001",
+                            Name = "[Lunar] Pleniluna",
+                            Rarity = 2,
+                            SortOrder = 0,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "12002",
+                            Name = "[Lunar] Decrescent",
+                            Rarity = 2,
+                            SortOrder = 1,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "12003",
+                            Name = "[Lunar] Noviluna",
+                            Rarity = 2,
+                            SortOrder = 2,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "12004",
+                            Name = "[Reverb] Mark I",
+                            Rarity = 2,
+                            SortOrder = 3,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "12005",
+                            Name = "[Reverb] Mark II",
+                            Rarity = 2,
+                            SortOrder = 4,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "12006",
+                            Name = "[Reverb] Mark III",
+                            Rarity = 2,
+                            SortOrder = 5,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "12007",
+                            Name = "[Vortex] Revolver",
+                            Rarity = 2,
+                            SortOrder = 6,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "12008",
+                            Name = "[Vortex] Arrow",
+                            Rarity = 2,
+                            SortOrder = 7,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "12009",
+                            Name = "[Vortex] Hatchet",
+                            Rarity = 2,
+                            SortOrder = 8,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "12010",
+                            Name = "[Magnetic Storm] Alpha",
+                            Rarity = 2,
+                            SortOrder = 9,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "12011",
+                            Name = "[Magnetic Storm] Bravo",
+                            Rarity = 2,
+                            SortOrder = 10,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "12012",
+                            Name = "[Magnetic Storm] Charlie",
+                            Rarity = 2,
+                            SortOrder = 11,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "12013",
+                            Name = "[Identity] Base",
+                            Rarity = 2,
+                            SortOrder = 12,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "12014",
+                            Name = "[Identity] Inflection",
+                            Rarity = 2,
+                            SortOrder = 13,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13001",
+                            Name = "Street Superstar",
+                            Rarity = 3,
+                            SortOrder = 14,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13002",
+                            Name = "Slice of Time",
+                            Rarity = 3,
+                            SortOrder = 15,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "13003",
+                            Name = "Rainforest Gourmet",
+                            Rarity = 3,
+                            SortOrder = 16,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "13004",
+                            Name = "Starlight Engine",
+                            Rarity = 3,
+                            SortOrder = 17,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13005",
+                            Name = "Steam Oven",
+                            Rarity = 3,
+                            SortOrder = 18,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "13006",
+                            Name = "Precious Fossilized Core",
+                            Rarity = 3,
+                            SortOrder = 19,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "13007",
+                            Name = "Original Transmorpher",
+                            Rarity = 3,
+                            SortOrder = 20,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13008",
+                            Name = "Weeping Gemini",
+                            Rarity = 3,
+                            SortOrder = 21,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "13009",
+                            Name = "Electro-Lip Gloss",
+                            Rarity = 3,
+                            SortOrder = 22,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "13010",
+                            Name = "Bunny Band",
+                            Rarity = 3,
+                            SortOrder = 23,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13011",
+                            Name = "Spring Embrace",
+                            Rarity = 3,
+                            SortOrder = 24,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13013",
+                            Name = "Gilded Blossom",
+                            Rarity = 3,
+                            SortOrder = 25,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13015",
+                            Name = "Marcato Desire",
+                            Rarity = 3,
+                            SortOrder = 26,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13101",
+                            Name = "Demara Battery Mark II",
+                            Rarity = 3,
+                            SortOrder = 27,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "13103",
+                            Name = "The Vault",
+                            Rarity = 3,
+                            SortOrder = 28,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "13106",
+                            Name = "Housekeeper",
+                            Rarity = 3,
+                            SortOrder = 29,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13108",
+                            Name = "Starlight Engine Replica",
+                            Rarity = 3,
+                            SortOrder = 30,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13111",
+                            Name = "Drill Rig - Red Axis",
+                            Rarity = 3,
+                            SortOrder = 31,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13112",
+                            Name = "Big Cylinder",
+                            Rarity = 3,
+                            SortOrder = 32,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13113",
+                            Name = "Bashful Demon",
+                            Rarity = 3,
+                            SortOrder = 33,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "13115",
+                            Name = "Kaboom the Cannon",
+                            Rarity = 3,
+                            SortOrder = 34,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "13127",
+                            Name = "Peacekeeper - Specialized",
+                            Rarity = 3,
+                            SortOrder = 35,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13128",
+                            Name = "Roaring Ride",
+                            Rarity = 3,
+                            SortOrder = 36,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14001",
+                            Name = "Cannon Rotor",
+                            Rarity = 3,
+                            SortOrder = 37,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14002",
+                            Name = "Unfettered Game Ball",
+                            Rarity = 3,
+                            SortOrder = 38,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "14003",
+                            Name = "Six Shooter",
+                            Rarity = 3,
+                            SortOrder = 39,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14102",
+                            Name = "Steel Cushion",
+                            Rarity = 4,
+                            SortOrder = 40,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14104",
+                            Name = "The Brimstone",
+                            Rarity = 4,
+                            SortOrder = 41,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14107",
+                            Name = "Tusks of Fury",
+                            Rarity = 4,
+                            SortOrder = 42,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "14109",
+                            Name = "Hailstorm Shrine",
+                            Rarity = 4,
+                            SortOrder = 43,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14110",
+                            Name = "Hellfire Gears",
+                            Rarity = 4,
+                            SortOrder = 44,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14114",
+                            Name = "The Restrained",
+                            Rarity = 4,
+                            SortOrder = 45,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14116",
+                            Name = "Blazing Laurel",
+                            Rarity = 4,
+                            SortOrder = 46,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14117",
+                            Name = "Flamemaker Shaker",
+                            Rarity = 4,
+                            SortOrder = 47,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14118",
+                            Name = "Fusion Compiler",
+                            Rarity = 4,
+                            SortOrder = 48,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14119",
+                            Name = "Deep Sea Visitor",
+                            Rarity = 4,
+                            SortOrder = 49,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14120",
+                            Name = "Zanshin Herb Case",
+                            Rarity = 4,
+                            SortOrder = 50,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14121",
+                            Name = "Weeping Cradle",
+                            Rarity = 4,
+                            SortOrder = 51,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "14122",
+                            Name = "Timeweaver",
+                            Rarity = 4,
+                            SortOrder = 52,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14124",
+                            Name = "Riot Suppressor Mark VI",
+                            Rarity = 4,
+                            SortOrder = 53,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14125",
+                            Name = "Ice-Jade Teapot",
+                            Rarity = 4,
+                            SortOrder = 54,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14126",
+                            Name = "Sharpened Stinger",
+                            Rarity = 4,
+                            SortOrder = 55,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14131",
+                            Name = "Elegant Vanity",
+                            Rarity = 4,
+                            SortOrder = 56,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "14132",
+                            Name = "Heartstring Nocturne",
+                            Rarity = 4,
+                            SortOrder = 57,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13135",
+                            Name = "Box Cutter",
+                            Rarity = 3,
+                            SortOrder = 58,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14136",
+                            Name = "Spectral Gaze",
+                            Rarity = 4,
+                            SortOrder = 59,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14138",
+                            Name = "Severed Innocence",
+                            Rarity = 4,
+                            SortOrder = 60,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14129",
+                            Name = "Myriad Eclipse",
+                            Rarity = 4,
+                            SortOrder = 61,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14133",
+                            Name = "Flight of Fancy",
+                            Rarity = 4,
+                            SortOrder = 62,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "12015",
+                            Name = "[Cinder] Cobalt",
+                            Rarity = 2,
+                            SortOrder = 63,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "13012",
+                            Name = "Puzzle Sphere",
+                            Rarity = 3,
+                            SortOrder = 64,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "13014",
+                            Name = "Radiowave Journey",
+                            Rarity = 3,
+                            SortOrder = 65,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "13016",
+                            Name = "Reel Projector",
+                            Rarity = 3,
+                            SortOrder = 66,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "13142",
+                            Name = "Tremor Trigram Vessel",
+                            Rarity = 3,
+                            SortOrder = 67,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "14137",
+                            Name = "Qingming Birdcage",
+                            Rarity = 4,
+                            SortOrder = 68,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14139",
+                            Name = "Roaring Fur-nace",
+                            Rarity = 4,
+                            SortOrder = 69,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14141",
+                            Name = "Metanukimorphosis",
+                            Rarity = 4,
+                            SortOrder = 70,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "14140",
+                            Name = "Practiced Perfection",
+                            Rarity = 4,
+                            SortOrder = 71,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14146",
+                            Name = "Cordis Germina",
+                            Rarity = 4,
+                            SortOrder = 72,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14130",
+                            Name = "Bellicose Blaze",
+                            Rarity = 4,
+                            SortOrder = 73,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14145",
+                            Name = "Dreamlit Hearth",
+                            Rarity = 4,
+                            SortOrder = 74,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "13144",
+                            Name = "Grill O'Wisp",
+                            Rarity = 3,
+                            SortOrder = 75,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14105",
+                            Name = "Kraken's Cradle",
+                            Rarity = 4,
+                            SortOrder = 76,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14148",
+                            Name = "Yesterday Calls",
+                            Rarity = 4,
+                            SortOrder = 77,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14147",
+                            Name = "Wrathful Vajra",
+                            Rarity = 4,
+                            SortOrder = 78,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14134",
+                            Name = "Half-Sugar Bunny",
+                            Rarity = 4,
+                            SortOrder = 79,
+                            Specialty = 4
+                        },
+                        new
+                        {
+                            Id = "14143",
+                            Name = "Cloudcleave Radiance",
+                            Rarity = 4,
+                            SortOrder = 80,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "13019",
+                            Name = "Cauldron of Clarity",
+                            Rarity = 3,
+                            SortOrder = 81,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14149",
+                            Name = "Thoughtbop",
+                            Rarity = 4,
+                            SortOrder = 82,
+                            Specialty = 3
+                        },
+                        new
+                        {
+                            Id = "14150",
+                            Name = "Angel in the Shell",
+                            Rarity = 4,
+                            SortOrder = 83,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "1511",
+                            Name = "Neon Fantasies",
+                            Rarity = 4,
+                            SortOrder = 84,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "13020",
+                            Name = "The Simmering Pot",
+                            Rarity = 3,
+                            SortOrder = 85,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "1521",
+                            Name = "Serpentine Seeker",
+                            Rarity = 4,
+                            SortOrder = 86,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14154",
+                            Name = "Frostfall Sickle",
+                            Rarity = 4,
+                            SortOrder = 87,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14153",
+                            Name = "Starlight Rider Faceplate",
+                            Rarity = 4,
+                            SortOrder = 88,
+                            Specialty = 5
+                        },
+                        new
+                        {
+                            Id = "14155",
+                            Name = "Sol Exuvia",
+                            Rarity = 4,
+                            SortOrder = 89,
+                            Specialty = 0
+                        },
+                        new
+                        {
+                            Id = "14156",
+                            Name = "Joyau Dore",
+                            Rarity = 4,
+                            SortOrder = 90,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14157",
+                            Name = "Chief Sidekick",
+                            Rarity = 4,
+                            SortOrder = 91,
+                            Specialty = 1
+                        },
+                        new
+                        {
+                            Id = "14158",
+                            Name = "Ode of Resurrected Wings",
+                            Rarity = 4,
+                            SortOrder = 92,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "13018",
+                            Name = "Boisterous Echoes",
+                            Rarity = 3,
+                            SortOrder = 93,
+                            Specialty = 2
+                        },
+                        new
+                        {
+                            Id = "14159",
+                            Name = "Knight's Extolment",
+                            Rarity = 4,
+                            SortOrder = 94,
+                            Specialty = 0
+                        });
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.Contribution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgentId")
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("AuthorPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EngineId")
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OverrideAgentId")
+                        .HasColumnType("character varying(100)");
+
+                    b.PrimitiveCollection<int[]>("ProposedCosts")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorPlayerId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("OverrideAgentId");
+
+                    b.HasIndex("ReviewedByPlayerId");
+
+                    b.HasIndex("AgentId", "Status");
+
+                    b.HasIndex("EngineId", "OverrideAgentId", "Status");
+
+                    b.ToTable("Contributions");
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.ContributionReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ContributionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ReviewerPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Vote")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewerPlayerId");
+
+                    b.HasIndex("ContributionId", "ReviewerPlayerId")
+                        .IsUnique();
+
+                    b.ToTable("ContributionReviews");
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.ReviewComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorPlayerId");
+
+                    b.HasIndex("ReviewId");
+
+                    b.ToTable("ReviewComments");
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Engines.EngineCostRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgentId")
+                        .HasColumnType("character varying(100)");
+
+                    b.PrimitiveCollection<int[]>("Costs")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<string>("EngineId")
+                        .IsRequired()
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("EngineId")
+                        .IsUnique()
+                        .HasFilter("\"AgentId\" IS NULL");
+
+                    b.HasIndex("EngineId", "AgentId")
+                        .IsUnique()
+                        .HasFilter("\"AgentId\" IS NOT NULL");
+
+                    b.ToTable("EngineCostRows");
+                });
+
             modelBuilder.Entity("ZenlessLeague.Api.Features.History.HistoryEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -528,6 +2007,88 @@ namespace ZenlessLeague.Api.Migrations
                         .HasFilter("\"TeamId\" IS NOT NULL");
 
                     b.ToTable("TournamentRegistrations");
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Agents.AgentCostRow", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.AgentCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.Contribution", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.AgentCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorPlayerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.EngineCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("EngineId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.AgentCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("OverrideAgentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByPlayerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.ContributionReview", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Contributions.Contribution", null)
+                        .WithMany()
+                        .HasForeignKey("ContributionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewerPlayerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Contributions.ReviewComment", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorPlayerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Contributions.ContributionReview", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.CommunityCosts.Engines.EngineCostRow", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.AgentCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ZenlessLeague.Api.Features.CommunityCosts.Catalog.EngineCatalogEntry", null)
+                        .WithMany()
+                        .HasForeignKey("EngineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ZenlessLeague.Api.Features.History.HistoryEntry", b =>

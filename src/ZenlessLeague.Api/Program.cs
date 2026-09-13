@@ -8,6 +8,9 @@ using Microsoft.IdentityModel.Tokens;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Data.Authorization;
 using ZenlessLeague.Api.Features.Auth;
+using ZenlessLeague.Api.Features.CommunityCosts.Agents;
+using ZenlessLeague.Api.Features.CommunityCosts.Contributions;
+using ZenlessLeague.Api.Features.CommunityCosts.Engines;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
@@ -38,12 +41,16 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 	options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
 });
 
-// Vite's default dev/preview origins — the SvelteKit frontend calls this API directly
-// with a Bearer token (not cookies), so no AllowCredentials() is needed.
+// Config-driven (Cors:AllowedOrigins in appsettings.json) so the deployed frontend's real origin
+// doesn't require a code change — the SvelteKit frontend calls this API directly with a Bearer
+// token (not cookies), so no AllowCredentials() is needed.
+var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+	?? throw new InvalidOperationException("Cors:AllowedOrigins is not configured.");
+
 builder.Services.AddCors(options =>
 {
 	options.AddPolicy("Frontend", policy => policy
-		.WithOrigins("http://localhost:5173", "http://localhost:4173")
+		.WithOrigins(corsAllowedOrigins)
 		.AllowAnyHeader()
 		.AllowAnyMethod());
 });
@@ -98,6 +105,13 @@ builder.Services.AddScoped<IPlayerService, PlayerService>();
 
 builder.Services.AddScoped<ITeamRepository, TeamRepository>();
 builder.Services.AddScoped<ITeamService, TeamService>();
+
+builder.Services.AddScoped<IAgentCostRepository, AgentCostRepository>();
+builder.Services.AddScoped<IAgentCostService, AgentCostService>();
+builder.Services.AddScoped<IEngineCostRepository, EngineCostRepository>();
+builder.Services.AddScoped<IEngineCostService, EngineCostService>();
+builder.Services.AddScoped<IContributionRepository, ContributionRepository>();
+builder.Services.AddScoped<IContributionService, ContributionService>();
 
 builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
 builder.Services.AddScoped<ITournamentService, TournamentService>();
@@ -176,6 +190,9 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapPlayerEndpoints();
 app.MapTeamEndpoints();
+app.MapAgentCostEndpoints();
+app.MapEngineCostEndpoints();
+app.MapContributionEndpoints();
 app.MapTournamentEndpoints();
 app.MapRegistrationEndpoints();
 app.MapHistoryEndpoints();

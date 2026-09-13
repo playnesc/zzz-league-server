@@ -1,4 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using ZenlessLeague.Api.Features.CommunityCosts.Agents;
+using ZenlessLeague.Api.Features.CommunityCosts.Catalog;
+using ZenlessLeague.Api.Features.CommunityCosts.Contributions;
+using ZenlessLeague.Api.Features.CommunityCosts.Engines;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
@@ -20,6 +24,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 	public DbSet<Archive> Archives => Set<Archive>();
 	public DbSet<ArchivedPlayerSnapshot> ArchivedPlayerSnapshots => Set<ArchivedPlayerSnapshot>();
 	public DbSet<SeasonTimer> SeasonTimers => Set<SeasonTimer>();
+	public DbSet<AgentCatalogEntry> AgentCatalogEntries => Set<AgentCatalogEntry>();
+	public DbSet<EngineCatalogEntry> EngineCatalogEntries => Set<EngineCatalogEntry>();
+	public DbSet<AgentCostRow> AgentCostRows => Set<AgentCostRow>();
+	public DbSet<EngineCostRow> EngineCostRows => Set<EngineCostRow>();
+	public DbSet<Contribution> Contributions => Set<Contribution>();
+	public DbSet<ContributionReview> ContributionReviews => Set<ContributionReview>();
+	public DbSet<ReviewComment> ReviewComments => Set<ReviewComment>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -144,6 +155,93 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 		{
 			snapshot.Property(s => s.Name).IsRequired();
 			snapshot.HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.SetNull);
+		});
+
+		modelBuilder.Entity<AgentCatalogEntry>(agent =>
+		{
+			agent.HasKey(a => a.Id);
+			agent.Property(a => a.Id).HasMaxLength(100);
+			agent.Property(a => a.Name).IsRequired().HasMaxLength(100);
+			// Static reference data (which agents exist, their specialty/rarity) — HasData bakes
+			// this into the migration itself so it's created deterministically in every
+			// environment. Unlike AgentCostRow below, nothing here changes at runtime, so it's
+			// safe for EF to own and diff against on future migrations.
+			agent.HasData(CommunityCostCatalogSeedData.Agents.Select((a, i) => new AgentCatalogEntry
+			{
+				Id = a.Id,
+				Name = a.Name,
+				Specialty = a.Specialty,
+				Rarity = a.Rarity,
+				SortOrder = i,
+			}));
+		});
+
+		modelBuilder.Entity<EngineCatalogEntry>(engine =>
+		{
+			engine.HasKey(e => e.Id);
+			engine.Property(e => e.Id).HasMaxLength(100);
+			engine.Property(e => e.Name).IsRequired().HasMaxLength(200);
+			engine.HasData(CommunityCostCatalogSeedData.Engines.Select((e, i) => new EngineCatalogEntry
+			{
+				Id = e.Id,
+				Name = e.Name,
+				Specialty = e.Specialty,
+				Rarity = e.Rarity,
+				SortOrder = i,
+			}));
+		});
+
+		modelBuilder.Entity<AgentCostRow>(row =>
+		{
+			row.HasOne<AgentCatalogEntry>().WithMany().HasForeignKey(r => r.AgentId).OnDelete(DeleteBehavior.Restrict);
+			// At most one row per (agent, non-null tier)...
+			row.HasIndex(r => new { r.AgentId, r.PotentialTier }).IsUnique();
+			// ...and Postgres treats every NULL as distinct, so a second, filtered unique index
+			// is needed to also cap null-tier rows at one per agent (same technique already used
+			// for Player.DiscordId above).
+			row.HasIndex(r => r.AgentId).IsUnique().HasFilter("\"PotentialTier\" IS NULL");
+		});
+
+		modelBuilder.Entity<EngineCostRow>(row =>
+		{
+			row.HasOne<EngineCatalogEntry>().WithMany().HasForeignKey(r => r.EngineId).OnDelete(DeleteBehavior.Restrict);
+			row.HasOne<AgentCatalogEntry>().WithMany().HasForeignKey(r => r.AgentId).OnDelete(DeleteBehavior.Restrict);
+			row.HasIndex(r => new { r.EngineId, r.AgentId }).IsUnique().HasFilter("\"AgentId\" IS NOT NULL");
+			row.HasIndex(r => r.EngineId).IsUnique().HasFilter("\"AgentId\" IS NULL");
+		});
+
+		modelBuilder.Entity<Contribution>(contribution =>
+		{
+			contribution.HasOne<Player>().WithMany().HasForeignKey(c => c.AuthorPlayerId).OnDelete(DeleteBehavior.Restrict);
+			contribution.HasOne<Player>().WithMany().HasForeignKey(c => c.ReviewedByPlayerId).OnDelete(DeleteBehavior.Restrict);
+			contribution.HasOne<AgentCatalogEntry>().WithMany().HasForeignKey(c => c.AgentId).OnDelete(DeleteBehavior.Restrict);
+			contribution.HasOne<EngineCatalogEntry>().WithMany().HasForeignKey(c => c.EngineId).OnDelete(DeleteBehavior.Restrict);
+			// A second, separate FK into AgentCatalogEntry alongside AgentId above — same
+			// repeated-FK-to-the-same-table pattern TournamentMatch already uses for its four
+			// Player FKs (P1PlayerId/P2PlayerId/WinnerPlayerId/TechLossPlayerId).
+			contribution.HasOne<AgentCatalogEntry>().WithMany().HasForeignKey(c => c.OverrideAgentId).OnDelete(DeleteBehavior.Restrict);
+			// Power the "pending contributions for this row" queries behind the row alert-dot
+			// and per-specialty-tab badge count.
+			contribution.HasIndex(c => new { c.AgentId, c.Status });
+			contribution.HasIndex(c => new { c.EngineId, c.OverrideAgentId, c.Status });
+			contribution.HasIndex(c => c.CreatedAt);
+		});
+
+		modelBuilder.Entity<ContributionReview>(review =>
+		{
+			review.HasOne<Contribution>().WithMany().HasForeignKey(r => r.ContributionId).OnDelete(DeleteBehavior.Cascade);
+			review.HasOne<Player>().WithMany().HasForeignKey(r => r.ReviewerPlayerId).OnDelete(DeleteBehavior.Restrict);
+			// The actual enforcement of "one review per contribution per reviewer" — backs
+			// ContributionService.UpsertReviewAsync's find-or-create logic with a real constraint.
+			review.HasIndex(r => new { r.ContributionId, r.ReviewerPlayerId }).IsUnique();
+		});
+
+		modelBuilder.Entity<ReviewComment>(comment =>
+		{
+			comment.HasOne<ContributionReview>().WithMany().HasForeignKey(c => c.ReviewId).OnDelete(DeleteBehavior.Cascade);
+			comment.HasOne<Player>().WithMany().HasForeignKey(c => c.AuthorPlayerId).OnDelete(DeleteBehavior.Restrict);
+			// No uniqueness — unlimited comments per review, unlike ContributionReview above.
+			comment.HasIndex(c => c.ReviewId);
 		});
 	}
 }
