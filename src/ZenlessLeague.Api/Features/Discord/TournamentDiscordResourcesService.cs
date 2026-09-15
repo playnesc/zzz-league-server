@@ -31,7 +31,12 @@ public class TournamentDiscordResourcesService(
 	public async Task CreateResourcesAsync(Guid tournamentId, CancellationToken ct = default)
 	{
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
-		if (tournament is null || (tournament.DiscordRoleName is null && tournament.DiscordChannelName is null))
+		// Blank (not just null) also means "no Discord resource wanted" -- TournamentService
+		// normalizes new saves to null at the boundary, but this guards existing rows saved before
+		// that fix (an empty name here would otherwise reach Discord's API and get rejected).
+		var hasRoleName = !string.IsNullOrWhiteSpace(tournament?.DiscordRoleName);
+		var hasChannelName = !string.IsNullOrWhiteSpace(tournament?.DiscordChannelName);
+		if (tournament is null || (!hasRoleName && !hasChannelName))
 		{
 			return;
 		}
@@ -39,14 +44,14 @@ public class TournamentDiscordResourcesService(
 		var opts = options.Value;
 		var roleId = tournament.DiscordRoleId;
 
-		if (tournament.DiscordRoleName is not null && roleId is null)
+		if (hasRoleName && roleId is null)
 		{
-			roleId = await discordClient.CreateGuildRoleAsync(tournament.DiscordRoleName, ct);
+			roleId = await discordClient.CreateGuildRoleAsync(tournament.DiscordRoleName!, ct);
 			tournament.DiscordRoleId = roleId;
 			await tournamentRepository.SaveChangesAsync(ct);
 		}
 
-		if (tournament.DiscordChannelName is not null && tournament.DiscordChannelId is null)
+		if (hasChannelName && tournament.DiscordChannelId is null)
 		{
 			var guildId = opts.GuildId ?? throw new InvalidOperationException("Discord:GuildId is not configured.");
 			var permissionOverwrites = new List<DiscordPermissionOverwrite> { new(guildId, 0, Deny: ChannelPermissions) };
@@ -57,7 +62,7 @@ public class TournamentDiscordResourcesService(
 
 			permissionOverwrites.AddRange(opts.TournamentStaffRoleIds.Select(id => new DiscordPermissionOverwrite(id, 0, Allow: ChannelPermissions)));
 
-			var channelId = await discordClient.CreateGuildChannelAsync(tournament.DiscordChannelName, opts.TournamentCategoryId, permissionOverwrites, ct);
+			var channelId = await discordClient.CreateGuildChannelAsync(tournament.DiscordChannelName!, opts.TournamentCategoryId, permissionOverwrites, ct);
 			tournament.DiscordChannelId = channelId;
 			await tournamentRepository.SaveChangesAsync(ct);
 		}

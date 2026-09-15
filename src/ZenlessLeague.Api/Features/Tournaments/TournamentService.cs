@@ -43,8 +43,8 @@ public class TournamentService(
 			Visible = request.Visible,
 			OverrideEloChange = request.OverrideEloChange,
 			ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank,
-			DiscordRoleName = request.DiscordRoleName,
-			DiscordChannelName = request.DiscordChannelName,
+			DiscordRoleName = NullIfBlank(request.DiscordRoleName),
+			DiscordChannelName = NullIfBlank(request.DiscordChannelName),
 		}, ct);
 
 		await notifier.TournamentChangedAsync(tournament.Id, ct);
@@ -88,8 +88,8 @@ public class TournamentService(
 		tournament.BracketType = request.BracketType;
 		tournament.ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank;
 		tournament.Visible = request.Visible;
-		tournament.DiscordRoleName = request.DiscordRoleName;
-		tournament.DiscordChannelName = request.DiscordChannelName;
+		tournament.DiscordRoleName = NullIfBlank(request.DiscordRoleName);
+		tournament.DiscordChannelName = NullIfBlank(request.DiscordChannelName);
 
 		await tournamentRepository.SaveChangesAsync(ct);
 		await notifier.TournamentChangedAsync(id, ct);
@@ -129,6 +129,13 @@ public class TournamentService(
 		var uidsById = await playerRepository.GetUidsByIdsAsync(ids, ct);
 		return tournaments.Select(t => ToDto(t, t.WinnerId is Guid wid ? uidsById.GetValueOrDefault(wid) : null)).ToList();
 	}
+
+	// The Discord name fields come straight from a form input that defaults to "" rather than
+	// omitted — stored verbatim, an empty (or whitespace-only) string reads as "set" downstream
+	// (TournamentDiscordResourcesService's `is not null` checks) and gets sent to Discord's API as
+	// a 0-length role/channel name, which it rejects. Blank means "no Discord resource wanted",
+	// same as never filling the field in, so normalize it to null right at the boundary.
+	private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
 	internal static TournamentDto ToDto(Tournament t, string? winnerUid) => new(
 		t.Id, t.Name, t.Description,
