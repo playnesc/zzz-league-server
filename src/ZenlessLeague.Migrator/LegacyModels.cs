@@ -107,5 +107,4 @@ public record LegacyHistoryEntry(
 	JsonElement? TournamentMatch,
 	string? ResultP1,
 	string? ResultP2,
-	string? ResultScreenshot,
 	long Timestamp);

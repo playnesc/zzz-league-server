@@ -6,7 +6,9 @@ namespace ZenlessLeague.Api.Features.Teams;
 // screenshots) — omit to leave the team without a logo (create) or keep the existing one (edit).
 public record CreateTeamRequest(string CreatorPlayerId, string Player2PlayerId, string Name, string? Photo);
 
-public record EditTeamRequest(string Name, string? Photo, string Player2PlayerId);
+// The second player is fixed at creation — a team's roster can't be reassigned afterward, only
+// its name/logo, so an edit only ever touches those two fields.
+public record EditTeamRequest(string Name, string? Photo);
 
 public record TeamDto(Guid Id, string Name, string? PhotoUrl, PlayerSummary Creator, PlayerSummary Player2, DateTimeOffset CreatedAt);
 

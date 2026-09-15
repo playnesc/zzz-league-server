@@ -20,7 +20,6 @@ public class HistoryEntry
 
 	public string? ResultP1 { get; set; }
 	public string? ResultP2 { get; set; }
-	public string? ResultScreenshotUrl { get; set; }
 
 	public DateTimeOffset Timestamp { get; set; }
 

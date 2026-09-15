@@ -165,7 +165,7 @@ public class MatchService(
 
 			var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
 				tournament, match, p1Win, "0",
-				match.ResultP1, match.ResultP2, match.ResultScreenshotUrl, techLoss: false, ct);
+				match.ResultP1, match.ResultP2, techLoss: false, ct);
 
 			match.HistoryEntryId = historyEntryId;
 			match.HistoryEntryId2 = historyEntryId2;
@@ -265,7 +265,7 @@ public class MatchService(
 
 		var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
 			tournament, match, p1Win, techLoss ? "999" : "0",
-			finalResultP1, finalResultP2, resultScreenshotUrl, techLoss, ct);
+			finalResultP1, finalResultP2, techLoss, ct);
 
 		match.ResultP1 = finalResultP1;
 		match.ResultP2 = finalResultP2;
@@ -301,7 +301,7 @@ public class MatchService(
 	// HistoryEntryId2, a solo match only ever populates WinnerPlayerId/leaves HistoryEntryId2 null.
 	private async Task<(Guid? WinnerPlayerId, Guid? WinnerTeamId, Guid HistoryEntryId, Guid? HistoryEntryId2)> ReportAndRegisterAsync(
 		Tournament tournament, TournamentMatch match, bool p1Win, string loserScore,
-		string? resultP1, string? resultP2, string? resultScreenshotUrl, bool techLoss, CancellationToken ct)
+		string? resultP1, string? resultP2, bool techLoss, CancellationToken ct)
 	{
 		if (tournament.ChallongeTournamentId is null)
 		{
@@ -346,7 +346,7 @@ public class MatchService(
 		{
 			var (entry1, entry2) = await historyService.RegisterTeamMatchResultAsync(
 				t1, t2, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, TournamentMatchKind.None,
-				resultP1, resultP2, resultScreenshotUrl, techLoss, ct);
+				resultP1, resultP2, techLoss, ct);
 
 			return (null, p1Win ? t1 : t2, entry1.Id, entry2.Id);
 		}
@@ -354,7 +354,7 @@ public class MatchService(
 		{
 			var entry = await historyService.RegisterMatchResultAsync(
 				match.P1PlayerId!.Value, match.P2PlayerId!.Value, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, TournamentMatchKind.None,
-				resultP1, resultP2, resultScreenshotUrl, techLoss, ct);
+				resultP1, resultP2, techLoss, ct);
 
 			return (p1Win ? match.P1PlayerId : match.P2PlayerId, null, entry.Id, null);
 		}

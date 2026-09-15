@@ -111,6 +111,23 @@ public class MigrationRunner(AppDbContext db, IRtdbReader rtdb, bool dryRun)
 					db.Players.Add(player);
 				}
 
+				// A player can delete/recreate their Firebase account and re-link the same Discord
+				// to the new uid — the old uid then drops out of RTDB entirely, but its stale
+				// Postgres row (from a prior run) still holds the DiscordId and would otherwise
+				// violate the unique constraint. RTDB is the source of truth being migrated, so the
+				// live claim wins: clear the stale row's DiscordId first.
+				if (!string.IsNullOrEmpty(legacy.DiscordId))
+				{
+					var staleOwner = await db.Players
+						.Where(p => p.DiscordId == legacy.DiscordId && p.Uid != uid)
+						.FirstOrDefaultAsync(ct);
+					if (staleOwner is not null)
+					{
+						Console.WriteLine($"  [warn] DiscordId {legacy.DiscordId} moved from uid {staleOwner.Uid} to {uid} — clearing stale link");
+						staleOwner.DiscordId = null;
+					}
+				}
+
 				LegacyMapper.ApplyTo(player, uid, legacy);
 				count++;
 			}
@@ -335,7 +352,6 @@ public class MigrationRunner(AppDbContext db, IRtdbReader rtdb, bool dryRun)
 			entry.Kind = kind;
 			entry.ResultP1 = legacy.ResultP1;
 			entry.ResultP2 = legacy.ResultP2;
-			entry.ResultScreenshotUrl = legacy.ResultScreenshot;
 			entry.Timestamp = LegacyMapper.ToDateTimeOffset(legacy.Timestamp) ?? DateTimeOffset.UtcNow;
 
 			if (challongeMatchId is not null && tournamentId is not null)

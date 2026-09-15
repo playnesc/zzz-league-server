@@ -7,8 +7,7 @@ public record RegisterMatchResultRequest(
 	int OverrideEloChange,
 	bool TechLoss = false,
 	string? ResultP1 = null,
-	string? ResultP2 = null,
-	string? ResultScreenshotUrl = null);
+	string? ResultP2 = null);
 
 public record SetPlayerEloRequest(int Elo);
 
@@ -26,7 +25,6 @@ public record HistoryEntryDto(
 	TournamentMatchKind Kind,
 	string? ResultP1,
 	string? ResultP2,
-	string? ResultScreenshotUrl,
 	DateTimeOffset Timestamp);
 
 // HasMore is `Entries.Count == take` (the page-size the caller asked for) — a cheap heuristic

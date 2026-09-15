@@ -14,7 +14,7 @@ public interface IHistoryService
 	Task<HistoryEntryDto> RegisterMatchResultAsync(
 		Guid p1PlayerId, Guid p2PlayerId, bool p1Win, int overrideEloChange,
 		Guid? tournamentId = null, Guid? tournamentMatchId = null, TournamentMatchKind kind = TournamentMatchKind.None,
-		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
+		string? resultP1 = null, string? resultP2 = null,
 		bool techLoss = false, CancellationToken ct = default);
 
 	// 2v2 equivalent of RegisterMatchResultAsync. A team match produces TWO HistoryEntry rows
@@ -24,7 +24,7 @@ public interface IHistoryService
 	Task<(HistoryEntryDto Entry1, HistoryEntryDto Entry2)> RegisterTeamMatchResultAsync(
 		Guid p1TeamId, Guid p2TeamId, bool p1Win, int overrideEloChange,
 		Guid tournamentId, Guid tournamentMatchId, TournamentMatchKind kind,
-		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
+		string? resultP1 = null, string? resultP2 = null,
 		bool techLoss = false, CancellationToken ct = default);
 
 	// Undoes a history entry's effect on the referenced player(s) and deletes it. Returns false
@@ -58,7 +58,7 @@ public class HistoryService(
 	public async Task<HistoryEntryDto> RegisterMatchResultAsync(
 		Guid p1PlayerId, Guid p2PlayerId, bool p1Win, int overrideEloChange,
 		Guid? tournamentId = null, Guid? tournamentMatchId = null, TournamentMatchKind kind = TournamentMatchKind.None,
-		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
+		string? resultP1 = null, string? resultP2 = null,
 		bool techLoss = false, CancellationToken ct = default)
 	{
 		var p1 = await playerRepository.GetEntityByIdAsync(p1PlayerId, ct)
@@ -99,7 +99,6 @@ public class HistoryService(
 			Kind = tournamentId is null ? (techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.Custom) : kind,
 			ResultP1 = resultP1,
 			ResultP2 = resultP2,
-			ResultScreenshotUrl = resultScreenshotUrl,
 			Timestamp = now,
 		};
 
@@ -110,7 +109,7 @@ public class HistoryService(
 	public async Task<(HistoryEntryDto Entry1, HistoryEntryDto Entry2)> RegisterTeamMatchResultAsync(
 		Guid p1TeamId, Guid p2TeamId, bool p1Win, int overrideEloChange,
 		Guid tournamentId, Guid tournamentMatchId, TournamentMatchKind kind,
-		string? resultP1 = null, string? resultP2 = null, string? resultScreenshotUrl = null,
+		string? resultP1 = null, string? resultP2 = null,
 		bool techLoss = false, CancellationToken ct = default)
 	{
 		var team1 = await teamRepository.GetByIdAsync(p1TeamId, ct)
@@ -151,7 +150,6 @@ public class HistoryService(
 			Kind = kind,
 			ResultP1 = resultP1,
 			ResultP2 = resultP2,
-			ResultScreenshotUrl = resultScreenshotUrl,
 			Timestamp = now,
 		};
 		var entry2 = new HistoryEntry
@@ -166,7 +164,6 @@ public class HistoryService(
 			Kind = kind,
 			ResultP1 = resultP1,
 			ResultP2 = resultP2,
-			ResultScreenshotUrl = resultScreenshotUrl,
 			Timestamp = now,
 		};
 
@@ -383,5 +380,5 @@ public class HistoryService(
 	// history-list row in the same response, so resolving the name there would be wasted work.
 	private static HistoryEntryDto ToDto(HistoryEntry e, string p1Uid, string? p2Uid, string? tournamentName = null) => new(
 		e.Id, p1Uid, e.P1Change, p2Uid, e.P2Change,
-		e.TournamentId, tournamentName, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.ResultScreenshotUrl, e.Timestamp);
+		e.TournamentId, tournamentName, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.Timestamp);
 }

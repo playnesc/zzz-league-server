@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Storage;
@@ -93,24 +95,17 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 			return null;
 		}
 
-		var player2 = await playerRepository.GetEntityByUidAsync(request.Player2PlayerId, ct)
-			?? throw new TeamValidationException($"Player '{request.Player2PlayerId}' does not exist.");
-
-		if (player2.Id == team.Player1Id)
-		{
-			throw new TeamValidationException("A team's two players must be different.");
-		}
-
 		team.Name = request.Name;
 		if (request.Photo is not null)
 		{
 			team.PhotoUrl = await storageClient.UploadImageAsync(request.Photo, $"teams/{team.Id}/logo", ct);
 		}
-		team.Player2Id = player2.Id;
 		await teamRepository.SaveChangesAsync(ct);
 
 		var creator = await playerRepository.GetEntityByIdAsync(team.Player1Id, ct)
 			?? throw new TeamValidationException($"Player '{team.Player1Id}' no longer exists.");
+		var player2 = await playerRepository.GetEntityByIdAsync(team.Player2Id, ct)
+			?? throw new TeamValidationException($"Player '{team.Player2Id}' no longer exists.");
 
 		return ToDto(team, ToSummary(creator), ToSummary(player2));
 	}
@@ -123,12 +118,30 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 			return false;
 		}
 
-		if (team.PhotoUrl is not null)
+		bool deleted;
+		try
+		{
+			// Restrict-on-delete FKs (TournamentChallongeParticipants, TournamentMatches'
+			// p1/p2/winner/tech-loss team, Tournaments.WinnerTeamId) surface here as a raw
+			// Postgres 23503 (foreign_key_violation) if this team ever competed in a tournament —
+			// translate that into a message the popup's alert() can actually show the user,
+			// instead of letting it fall through to the generic 500 handler.
+			deleted = await teamRepository.DeleteAsync(id, ct);
+		}
+		catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23503" })
+		{
+			throw new TeamValidationException(
+				"This team can't be deleted because it has tournament history (bracket entries or match records).");
+		}
+
+		// Only remove the logo once the row is actually gone — deleting it first (the old order)
+		// left the team without a photo if the DB delete then failed.
+		if (deleted && team.PhotoUrl is not null)
 		{
 			await storageClient.DeleteImageAsync($"teams/{id}/logo", ct);
 		}
 
-		return await teamRepository.DeleteAsync(id, ct);
+		return deleted;
 	}
 
 	// Player1Id/Player2Id are real FKs into Players now, so these rows are guaranteed to

@@ -1531,9 +1531,6 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<string>("ResultP2")
                         .HasColumnType("text");
 
-                    b.Property<string>("ResultScreenshotUrl")
-                        .HasColumnType("text");
-
                     b.Property<DateTimeOffset>("Timestamp")
                         .HasColumnType("timestamp with time zone");
 

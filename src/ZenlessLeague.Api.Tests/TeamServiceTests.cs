@@ -54,13 +54,12 @@ public class TeamServiceTests
 		await using var context = CreateContext();
 		SeedPlayer(context, "p1");
 		SeedPlayer(context, "p2");
-		SeedPlayer(context, "p3");
 		await context.SaveChangesAsync();
 		var storage = new FakeFirebaseStorageClient();
 		var service = new TeamService(new TeamRepository(context), new PlayerRepository(context), storage);
 		var team = await service.CreateAsync(new CreateTeamRequest("p1", "p2", "Team", "data:image/png;base64,Zm9v"));
 
-		var updated = await service.UpdateAsync(team.Id, new EditTeamRequest("Team", null, "p3"));
+		var updated = await service.UpdateAsync(team.Id, new EditTeamRequest("Team", null));
 
 		Assert.NotNull(updated);
 		Assert.Equal(team.PhotoUrl, updated!.PhotoUrl);
@@ -100,21 +99,20 @@ public class TeamServiceTests
 	}
 
 	[Fact]
-	public async Task UpdateAsync_ChangesPlayer2AndName()
+	public async Task UpdateAsync_ChangesNameButNotPlayer2()
 	{
 		await using var context = CreateContext();
 		SeedPlayer(context, "p1");
 		SeedPlayer(context, "p2");
-		SeedPlayer(context, "p3");
 		await context.SaveChangesAsync();
 		var service = CreateService(context);
 		var team = await service.CreateAsync(new CreateTeamRequest("p1", "p2", "Old Name", null));
 
-		var updated = await service.UpdateAsync(team.Id, new EditTeamRequest("New Name", null, "p3"));
+		var updated = await service.UpdateAsync(team.Id, new EditTeamRequest("New Name", null));
 
 		Assert.NotNull(updated);
 		Assert.Equal("New Name", updated!.Name);
-		Assert.Equal("p3", updated.Player2.Uid);
+		Assert.Equal("p2", updated.Player2.Uid);
 	}
 
 	[Fact]

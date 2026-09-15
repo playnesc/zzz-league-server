@@ -19,8 +19,7 @@ public static class HistoryEndpoints
 
 			var entry = await service.RegisterMatchResultAsync(
 				p1.Id, p2.Id, request.P1Win, request.OverrideEloChange,
-				techLoss: request.TechLoss, resultP1: request.ResultP1, resultP2: request.ResultP2,
-				resultScreenshotUrl: request.ResultScreenshotUrl, ct: ct);
+				techLoss: request.TechLoss, resultP1: request.ResultP1, resultP2: request.ResultP2, ct: ct);
 			return Results.Created($"/api/history/{entry.Id}", entry);
 		}).RequireAuthorization("Admin");
 
