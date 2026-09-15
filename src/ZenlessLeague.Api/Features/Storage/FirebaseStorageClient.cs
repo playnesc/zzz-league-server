@@ -33,14 +33,18 @@ public partial class FirebaseStorageClient(HttpClient httpClient, Lazy<GoogleCre
 	private const long MaxImageSizeBytes = 3 * 1024 * 1024;
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-	[GeneratedRegex(@"^data:(image/\w+);base64,")]
+	// Matches any "data:<media-type>;base64," prefix, not just plain-word media types -- browsers
+	// report some image types with characters \w doesn't cover (e.g. SVG as "image/svg+xml"), and
+	// falling back to a made-up content type while leaving the real prefix stuck to the payload
+	// broke every such upload (the stray "data:image/svg+xml;base64," text isn't valid base64).
+	[GeneratedRegex(@"^data:([^;]+);base64,")]
 	private static partial Regex DataUrlPattern();
 
 	public async Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default)
 	{
 		var match = DataUrlPattern().Match(base64Image);
 		var contentType = match.Success ? match.Groups[1].Value : "image/jpeg";
-		var ext = contentType.Split('/')[1];
+		var ext = contentType.Split('/')[1].Split('+')[0];
 
 		var base64Data = DataUrlPattern().Replace(base64Image, string.Empty);
 		byte[] buffer;
