@@ -154,26 +154,33 @@ public class TournamentLifecycleService(
 			throw new TournamentLifecycleException("Challonge bracket has not been created yet.");
 		}
 
-		// Challonge start, match sync, and Discord resource creation are each individually
-		// idempotent (Challonge tolerates being told to start an already-started tournament;
-		// match sync upserts by ChallongeMatchId; Discord resource creation checks for an
-		// existing role/channel id before creating one and skips already-assigned roles), so
-		// retrying the whole sequence on a transient failure is safe — no risk of double-creating
-		// a role or double-counting a match. Note this is idempotent-safe-to-retry, not
-		// transactional: match rows and Discord resources created by an earlier step are NOT
-		// rolled back if a later step fails, so a failed attempt can still leave real matches/a
-		// real role/a real channel behind. The tournament's own State only flips to Started once
-		// every step has actually succeeded, so on failure it's left exactly as it was
-		// (BracketCreated) — the admin can just call start again once the underlying issue
-		// (Discord outage, Challonge hiccup, etc.) is fixed, and whatever already succeeded will
-		// be skipped rather than redone.
+		// Discord resource creation runs FIRST, before Challonge is ever told to start — it's the
+		// step most likely to fail on bad input (see TournamentService.NullIfBlank), and unlike
+		// Challonge's start call it has no visible side effect for participants if it fails, so
+		// failing here leaves the tournament genuinely untouched: no Challonge start call made, no
+		// matches synced, still cleanly BracketCreated. Calling Challonge's start endpoint is the
+		// point of no return — once that succeeds, real matches exist there whether or not our own
+		// State ever reaches Started, so nothing after it may run before something that's still
+		// allowed to fail for reasons within our control.
+		//
+		// All three steps are individually idempotent (Challonge tolerates being told to start an
+		// already-started tournament; match sync upserts by ChallongeMatchId; Discord resource
+		// creation checks for an existing role/channel id before creating one and skips
+		// already-assigned roles), so retrying the whole sequence on a transient failure is safe —
+		// no risk of double-creating a role or double-counting a match. Note this is
+		// idempotent-safe-to-retry, not transactional: a role/channel created by the first step is
+		// NOT rolled back if Challonge's start call then fails. The tournament's own State only
+		// flips to Started once every step has actually succeeded, so on failure it's left exactly
+		// as it was (BracketCreated) — the admin can just call start again once the underlying issue
+		// (Discord outage, Challonge hiccup, etc.) is fixed, and whatever already succeeded will be
+		// skipped rather than redone.
 		try
 		{
 			await RetryAsync(async () =>
 			{
+				await discordResourcesService.CreateResourcesAsync(id, ct);
 				await challongeClient.StartAsync(tournament.ChallongeTournamentId!, ct);
 				await matchService.SyncFromChallongeAsync(id, ct);
-				await discordResourcesService.CreateResourcesAsync(id, ct);
 			}, ct);
 		}
 		catch (Exception ex)
