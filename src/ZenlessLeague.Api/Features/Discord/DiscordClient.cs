@@ -56,6 +56,11 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 	{
 		var guildId = RequireGuildId();
 		var response = await SendAsync(HttpMethod.Delete, $"guilds/{guildId}/roles/{roleId}", null, ct);
+		if (response.StatusCode == HttpStatusCode.NotFound)
+		{
+			return;
+		}
+
 		await ThrowIfErrorAsync(response, ct);
 	}
 
@@ -76,6 +81,11 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 	public async Task DeleteGuildChannelAsync(string channelId, CancellationToken ct = default)
 	{
 		var response = await SendAsync(HttpMethod.Delete, $"channels/{channelId}", null, ct);
+		if (response.StatusCode == HttpStatusCode.NotFound)
+		{
+			return;
+		}
+
 		await ThrowIfErrorAsync(response, ct);
 	}
 
