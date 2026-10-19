@@ -1780,6 +1780,16 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<Guid?>("HistoryEntryId2")
                         .HasColumnType("uuid");
 
+                    b.Property<bool?>("NexusP1IsLeft")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NexusResultId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("NexusSnapshot")
+                        .HasColumnType("jsonb");
+
                     b.Property<bool>("P1ApprovedResult")
                         .HasColumnType("boolean");
 

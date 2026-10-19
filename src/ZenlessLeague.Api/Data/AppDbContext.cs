@@ -128,6 +128,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			match.HasOne<Team>().WithMany().HasForeignKey(m => m.TechLossTeamId).OnDelete(DeleteBehavior.Restrict);
 			match.HasOne<HistoryEntry>().WithMany().HasForeignKey(m => m.HistoryEntryId).OnDelete(DeleteBehavior.SetNull);
 			match.HasOne<HistoryEntry>().WithMany().HasForeignKey(m => m.HistoryEntryId2).OnDelete(DeleteBehavior.SetNull);
+			match.Property(m => m.NexusResultId).HasMaxLength(64);
+			match.Property(m => m.NexusSnapshot).HasColumnType("jsonb");
 		});
 
 		modelBuilder.Entity<HistoryEntry>(entry =>

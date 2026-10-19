@@ -30,6 +30,19 @@ public static class MatchEndpoints
 			return match is null ? Results.NotFound() : Results.Ok(match);
 		}).RequireAuthorization();
 
+		group.MapPost("/{matchId:guid}/nexus-preview", async (
+			Guid id, Guid matchId, NexusPreviewRequest request, HttpContext http, IMatchService service, CancellationToken ct) =>
+		{
+			var uid = http.User.GetUid();
+			if (uid is null)
+			{
+				return Results.Unauthorized();
+			}
+
+			var preview = await service.PreviewNexusResultAsync(id, matchId, uid, request, ct);
+			return preview is null ? Results.NotFound() : Results.Ok(preview);
+		}).RequireAuthorization();
+
 		group.MapPost("/{matchId:guid}/admin-result", async (
 			Guid id, Guid matchId, SetAdminResultRequest request, IMatchService service, CancellationToken ct) =>
 		{

@@ -3,7 +3,7 @@ namespace ZenlessLeague.Api.Data;
 // Common ancestor for every feature's domain exception (HistoryValidationException,
 // MatchForbiddenException, etc.) so ApiExceptionHandler can map all of them to an HTTP
 // response in one place instead of each endpoint file repeating its own try/catch.
-public abstract class ApiException(int statusCode, string message) : Exception(message)
+public abstract class ApiException(int statusCode, string message, Exception? innerException = null) : Exception(message, innerException)
 {
 	public int StatusCode { get; } = statusCode;
 }

@@ -13,6 +13,7 @@ using ZenlessLeague.Api.Features.CommunityCosts.Contributions;
 using ZenlessLeague.Api.Features.CommunityCosts.Engines;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
+using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Storage;
@@ -126,6 +127,12 @@ builder.Services.Configure<ChallongeOptions>(builder.Configuration.GetSection("C
 builder.Services.AddHttpClient<IChallongeClient, ChallongeClient>(client =>
 	client.BaseAddress = new Uri("https://api.challonge.com/v2.1/"));
 
+builder.Services.AddHttpClient<INexusClient, NexusClient>(client =>
+{
+	client.BaseAddress = new Uri("https://nexus-shiyu.com/");
+	client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 builder.Services.AddScoped<ITournamentChallongeParticipantRepository, TournamentChallongeParticipantRepository>();
 builder.Services.AddScoped<ITournamentMatchRepository, TournamentMatchRepository>();
 builder.Services.AddScoped<IMatchService, MatchService>();
@@ -168,6 +175,21 @@ builder.Services.AddScoped<ISeasonTimerRepository, SeasonTimerRepository>();
 builder.Services.AddScoped<ISeasonService, SeasonService>();
 
 var app = builder.Build();
+
+// Apply pending EF migrations before serving requests, so a deploy that ships a migration can't
+// run new code against an old schema. Single API instance, so no cross-instance race; if a
+// migration fails the app doesn't start (visible in Coolify's deploy/app logs) instead of serving
+// requests against a half-migrated database.
+using (var scope = app.Services.CreateScope())
+{
+	var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+	var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+	if (pending.Count > 0)
+	{
+		app.Logger.LogInformation("Applying {Count} pending migration(s): {Migrations}", pending.Count, string.Join(", ", pending));
+		await db.Database.MigrateAsync();
+	}
+}
 
 // First in the pipeline so it wraps every other middleware/endpoint below.
 app.UseExceptionHandler();

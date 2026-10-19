@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
+using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
@@ -93,7 +95,7 @@ public class MatchServiceTests
 		return (tournament, match, team1, team2);
 	}
 
-	private static (IMatchService Service, FakeChallongeClient Challonge, FakeTournamentNotifier Notifier) CreateService(AppDbContext context)
+	private static (IMatchService Service, FakeChallongeClient Challonge, FakeTournamentNotifier Notifier) CreateService(AppDbContext context, FakeNexusClient? nexus = null)
 	{
 		var challonge = new FakeChallongeClient();
 		var playerRepository = new PlayerRepository(context);
@@ -108,8 +110,24 @@ public class MatchServiceTests
 			challonge,
 			historyService,
 			new FakeFirebaseStorageClient(),
-			notifier);
+			notifier,
+			nexus ?? NexusFixtures.ClientWithSamples(),
+			new TournamentRegistrationRepository(context),
+			NullLogger<MatchService>.Instance);
 		return (service, challonge, notifier);
+	}
+
+	// Solo registration carrying the player's Nexus nickname — what MatchService matches the
+	// names on a Nexus result against.
+	private static async Task RegisterAsync(AppDbContext context, Tournament tournament, Player player, string nexusNickname)
+	{
+		context.TournamentRegistrations.Add(new TournamentRegistration
+		{
+			Id = Guid.NewGuid(), TournamentId = tournament.Id, PlayerId = player.Id,
+			Player1Details = new PlayerRegistrationDetails { GameUid = "g", DarteNickname = nexusNickname, DartePresetName = "p", RosterName = "r" },
+			Approved = true, RegisteredAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+		});
+		await context.SaveChangesAsync();
 	}
 
 	[Fact]
@@ -142,26 +160,34 @@ public class MatchServiceTests
 	}
 
 	[Fact]
-	public async Task SubmitPlayerResultAsync_BothApprove_FinalizesAndRegistersHistory()
+	public async Task SubmitPlayerResultAsync_NexusLink_BothApprove_FinalizesAndRegistersHistory()
 	{
 		await using var context = CreateContext();
-		var (tournament, match, _, _) = await SeedAsync(context);
+		var (tournament, match, p1Player, p2Player) = await SeedAsync(context);
+		// Shiyu sample: m_Debil (left) 4:54 vs shad1w (right) 3:43 — lower time wins.
+		await RegisterAsync(context, tournament, p1Player, "shad1w");
+		await RegisterAsync(context, tournament, p2Player, "m_Debil");
 		var (service, challonge, notifier) = CreateService(context);
 
 		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
 
-		// p1 submits first — not both approved yet, match stays open.
-		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("1:00", "1:30"));
+		// p1 submits the link — not both approved yet, match stays open.
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId)));
 		Assert.NotNull(afterP1);
 		Assert.True(afterP1!.P1ApprovedResult);
 		Assert.False(afterP1.P2ApprovedResult);
 		Assert.NotEqual("complete", afterP1.State);
+		Assert.Equal("03:43", afterP1.ResultP1); // p1 is shad1w = right side
+		Assert.Equal("04:54", afterP1.ResultP2);
+		Assert.Equal(NexusFixtures.ShiyuFinishedId, afterP1.NexusResultId);
+		Assert.Empty(afterP1.NexusMissing!);
 
-		// p2 approves the same result — triggers finalize.
-		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("1:00", "1:30"));
+		// p2 confirms without re-sending anything — triggers finalize.
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest());
 		Assert.NotNull(afterP2);
 		Assert.Equal("complete", afterP2!.State);
-		Assert.Equal("p1", afterP2.WinnerPlayerId); // 1:00 < 1:30
+		Assert.Equal("p1", afterP2.WinnerPlayerId); // 3:43 < 4:54
 
 		Assert.Equal(("ctid", "555", "c1", "c2", true, "0"), challonge.LastUpdateMatchResult);
 
@@ -185,22 +211,231 @@ public class MatchServiceTests
 		var (service, _, _) = CreateService(context);
 
 		await Assert.ThrowsAsync<MatchForbiddenException>(() =>
-			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "someone-else", new SubmitPlayerResultRequest("1:00", "1:30")));
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "someone-else",
+				new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId))));
 	}
 
 	[Fact]
-	public async Task SubmitPlayerResultAsync_DeadlyAssault_HigherScoreWins()
+	public async Task SubmitPlayerResultAsync_DeadlyAssaultNexusLink_HigherScoreWins()
 	{
 		await using var context = CreateContext();
-		var (tournament, match, _, _) = await SeedAsync(context, gameMode: TournamentGameMode.DeadlyAssault);
+		var (tournament, match, p1Player, _) = await SeedAsync(context, gameMode: TournamentGameMode.DeadlyAssault);
+		// DA sample: m_Debil (left) 81 110 vs shad1w (right) 41 110. Only p1 is recognizable —
+		// that's enough to place both.
+		await RegisterAsync(context, tournament, p1Player, "  M_DEBIL ");
+		var (service, challonge, _) = CreateService(context);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(NexusFixtures.DeadlyAssaultId)));
+		Assert.Equal("81110", afterP1!.ResultP1);
+		Assert.Equal("41110", afterP1.ResultP2);
+
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest());
+
+		Assert.Equal("complete", afterP2!.State);
+		Assert.Equal("p1", afterP2.WinnerPlayerId); // 81110 > 41110
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_SoloWithoutLinkAndNoStoredResult_Throws()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context);
+
+		// Typed results/screenshots are no longer accepted from players in solo matches.
+		await Assert.ThrowsAsync<MatchValidationException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("1:00", "1:30")));
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_UnmatchedNames_RequireSideThenUseIt()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context);
+		var link = NexusFixtures.Link(NexusFixtures.ShiyuFinishedId);
+
+		// Neither "p1" nor "p2" appears on the Nexus result.
+		await Assert.ThrowsAsync<MatchValidationException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest(NexusResultUrl: link)));
+
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: link, NexusP1Side: "left"));
+		Assert.Equal("04:54", afterP1!.ResultP1);
+		Assert.Equal("03:43", afterP1.ResultP2);
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_UnfinishedResult_CountsFinishedGameAndReportsMissing()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, p1Player, p2Player) = await SeedAsync(context);
+		await RegisterAsync(context, tournament, p1Player, "m_Debil");
+		await RegisterAsync(context, tournament, p2Player, "shad1w");
+		var (service, _, _) = CreateService(context);
+
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuUnfinishedId)));
+
+		Assert.Equal("01:23", afterP1!.ResultP1);
+		Assert.Equal("02:22", afterP1.ResultP2);
+		Assert.Equal(2, afterP1.NexusTotalGames);
+		Assert.Equal(1, afterP1.NexusCountedGames);
+		Assert.Equal([new NexusMissingDto(2, "p1"), new NexusMissingDto(2, "p2")], afterP1.NexusMissing);
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ChangedNexusResult_ResetsOpponentApproval()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, p1Player, p2Player) = await SeedAsync(context);
+		await RegisterAsync(context, tournament, p1Player, "m_Debil");
+		await RegisterAsync(context, tournament, p2Player, "shad1w");
+		var nexus = NexusFixtures.ClientWithSamples();
+		var (service, _, _) = CreateService(context, nexus);
+		var link = NexusFixtures.Link(NexusFixtures.ShiyuUnfinishedId);
+
+		// p1 submits the half-finished result; p2 resubmits the same link after game 2 was played.
+		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest(NexusResultUrl: link));
+		nexus.Results[NexusFixtures.ShiyuUnfinishedId] = NexusFixtures.Build("m_Debil", "shad1w", scoreBased: false, ("1:23", "2:22"), ("1:00", "1:10"));
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest(NexusResultUrl: link));
+
+		Assert.False(afterP2!.P1ApprovedResult);
+		Assert.True(afterP2.P2ApprovedResult);
+		Assert.Equal("02:23", afterP2.ResultP1);
+		Assert.Equal("03:32", afterP2.ResultP2);
+		Assert.NotEqual("complete", afterP2.State);
+	}
+
+	[Theory]
+	[InlineData(TournamentGameMode.ShiyuDefense, NexusFixtures.DeadlyAssaultId)]
+	[InlineData(TournamentGameMode.DeadlyAssault, NexusFixtures.ShiyuFinishedId)]
+	public async Task SubmitPlayerResultAsync_WrongGameMode_Throws(TournamentGameMode mode, string resultId)
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context, gameMode: mode);
+		var (service, _, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<NexusResultException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+				new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(resultId), NexusP1Side: "left")));
+	}
+
+	[Theory]
+	[InlineData("https://example.com/results/cmvfrhirw0i2652vtboz37ace/obs")]
+	[InlineData("https://nexus-shiyu.com/results/doesnotexist0000/obs")]
+	public async Task SubmitPlayerResultAsync_BadOrUnknownLink_Throws(string link)
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<NexusResultException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest(NexusResultUrl: link, NexusP1Side: "left")));
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_UnreadableNexusResponse_ThrowsFormatException()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var nexus = new FakeNexusClient();
+		// Simulates Nexus renaming its fields — must surface as 502 ("report to the admins").
+		nexus.Results["changedformat00"] = "{\"players\":{\"left\":\"a\",\"right\":\"b\"},\"games\":[]}";
+		var (service, _, _) = CreateService(context, nexus);
+
+		var ex = await Assert.ThrowsAsync<NexusFormatException>(() => service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("changedformat00"), NexusP1Side: "left")));
+		Assert.Equal(502, ex.StatusCode);
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_NoFinishedGameOrTie_Throws()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var nexus = new FakeNexusClient();
+		nexus.Results["nothingplayed00"] = NexusFixtures.Build("a", "b", scoreBased: false, ("0:00", "0:00"), ("0:00", "0:00"));
+		nexus.Results["tiedresult00000"] = NexusFixtures.Build("a", "b", scoreBased: false, ("1:00", "2:00"), ("2:00", "1:00"));
+		var (service, _, _) = CreateService(context, nexus);
+
+		await Assert.ThrowsAsync<MatchValidationException>(() => service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("nothingplayed00"), NexusP1Side: "left")));
+		await Assert.ThrowsAsync<MatchValidationException>(() => service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("tiedresult00000"), NexusP1Side: "left")));
+	}
+
+	[Fact]
+	public async Task PreviewNexusResultAsync_ReturnsMappedResultWithoutSaving()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, p2Player) = await SeedAsync(context);
+		await RegisterAsync(context, tournament, p2Player, "m_Debil");
+		var (service, _, _) = CreateService(context);
+
+		var preview = await service.PreviewNexusResultAsync(tournament.Id, match.Id, "p2",
+			new NexusPreviewRequest(NexusFixtures.Link(NexusFixtures.ShiyuUnfinishedId)));
+
+		Assert.NotNull(preview);
+		Assert.False(preview!.P1IsLeft); // p2 is m_Debil = left
+		Assert.Equal("02:22", preview.ResultP1);
+		Assert.Equal("01:23", preview.ResultP2);
+		Assert.Equal(1, preview.CountedGames);
+		Assert.Equal([new NexusMissingDto(2, "p2"), new NexusMissingDto(2, "p1")], preview.Missing);
+
+		var stored = await context.TournamentMatches.SingleAsync(m => m.Id == match.Id);
+		Assert.Null(stored.NexusResultId);
+		Assert.Null(stored.ResultP1);
+	}
+
+	[Fact]
+	public async Task PreviewNexusResultAsync_UnmatchedNames_ReturnsUnknownSides()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context);
+
+		var preview = await service.PreviewNexusResultAsync(tournament.Id, match.Id, "p1",
+			new NexusPreviewRequest(NexusFixtures.Link(NexusFixtures.ShiyuFinishedId)));
+
+		Assert.Null(preview!.P1IsLeft);
+		Assert.Null(preview.ResultP1);
+		Assert.Equal("04:54", preview.LeftTotal);
+		Assert.Equal("03:43", preview.RightTotal);
+	}
+
+	[Fact]
+	public async Task PreviewNexusResultAsync_NonParticipant_ThrowsForbidden()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		TestPlayers.Create(context, "outsider");
+		await context.SaveChangesAsync();
+		var (service, _, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<MatchForbiddenException>(() => service.PreviewNexusResultAsync(tournament.Id, match.Id, "outsider",
+			new NexusPreviewRequest(NexusFixtures.Link(NexusFixtures.ShiyuFinishedId))));
+	}
+
+	[Fact]
+	public async Task SetAdminResultAsync_NexusLink_TypedResultsWinOverLink()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
 		var (service, challonge, _) = CreateService(context);
 		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c2", "c1", "c2")];
 
-		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("1000", "2000"));
-		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("1000", "2000"));
+		// Link says p1 (left) 04:54 vs p2 03:43; the moderator corrects p1's time to 05:00.
+		var result = await service.SetAdminResultAsync(tournament.Id, match.Id,
+			new SetAdminResultRequest(ResultP1: "05:00", NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId), NexusP1Side: "left"));
 
-		Assert.Equal("complete", afterP2!.State);
-		Assert.Equal("p2", afterP2.WinnerPlayerId); // 2000 > 1000
+		Assert.Equal("complete", result!.State);
+		Assert.Equal("05:00", result.ResultP1);
+		Assert.Equal("03:43", result.ResultP2);
+		Assert.Equal("p2", result.WinnerPlayerId);
+		Assert.Equal(NexusFixtures.ShiyuFinishedId, result.NexusResultId);
 	}
 
 	[Fact]

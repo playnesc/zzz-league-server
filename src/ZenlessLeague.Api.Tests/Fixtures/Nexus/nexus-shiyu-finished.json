@@ -1,0 +1,208 @@
+{
+	"leftName": "m_Debil",
+	"rightName": "shad1w",
+	"agentArt": {
+		"left": {
+			"id": "cmr986awl0008j6vt61fe2bfc",
+			"name": "Alice Thymefield",
+			"imageUrl": "/api/media/characters/imported/0568fc1f7d0aaa8e.png",
+			"position": {
+				"scale": 3.6000000000000023,
+				"offsetX": 24,
+				"offsetY": 49.29178470254957
+			}
+		},
+		"right": {
+			"id": "cmttw8voq0ujq7rvtik5w4t70",
+			"name": "Claret Flint",
+			"imageUrl": "/api/media/characters/imported/0f62be0d1af24e29.png",
+			"position": {
+				"scale": 5.444444562182023,
+				"offsetX": -86.22226562500002,
+				"offsetY": 35.41076054991811
+			}
+		}
+	},
+	"hudArt": {
+		"left": {
+			"id": "cmr986awl0008j6vt61fe2bfc",
+			"name": "Alice Thymefield",
+			"imageUrl": "/api/media/characters/imported/0568fc1f7d0aaa8e.png",
+			"position": {
+				"scale": 3.2222222810910086,
+				"offsetX": 16.0923786129331,
+				"offsetY": 131.10028954176735
+			}
+		},
+		"right": {
+			"id": "cmttw8voq0ujq7rvtik5w4t70",
+			"name": "Claret Flint",
+			"imageUrl": "/api/media/characters/imported/0f62be0d1af24e29.png",
+			"position": {
+				"scale": 3.573333342163652,
+				"offsetX": -49.514940503234314,
+				"offsetY": 104.00953462255913
+			}
+		}
+	},
+	"teamHud": null,
+	"teamLogo": null,
+	"scoreBased": false,
+	"series": null,
+	"singleGame": false,
+	"bossIcons": {
+		"g1": [],
+		"g2": []
+	},
+	"squadRows": 2,
+	"currentGame": 2,
+	"hud": {
+		"firstSide": "right",
+		"target": "1:10"
+	},
+	"timers": {
+		"g1": {
+			"left": "2:32",
+			"right": "1:11",
+			"diff": "1:21"
+		},
+		"g2": {
+			"left": "2:22",
+			"right": "2:32",
+			"diff": "0:10"
+		},
+		"total": {
+			"left": "4:54",
+			"right": "3:43",
+			"diff": "1:11"
+		}
+	},
+	"restarts": {
+		"g1": {
+			"left": [
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "paid",
+					"label": "+5"
+				},
+				{
+					"kind": "paid",
+					"label": "+5"
+				}
+			],
+			"right": [
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "white"
+				},
+				{
+					"kind": "white"
+				}
+			]
+		},
+		"g2": {
+			"left": [
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "white"
+				},
+				{
+					"kind": "white"
+				}
+			],
+			"right": [
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "free"
+				},
+				{
+					"kind": "paid",
+					"label": "+5"
+				},
+				{
+					"kind": "paid",
+					"label": "+5"
+				}
+			]
+		}
+	},
+	"squads": {
+		"g1": {
+			"left": {
+				"squad": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0056.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0041.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0012.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0061.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0038.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0049.png"
+				],
+				"bans": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0060.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0050.png"
+				]
+			},
+			"right": {
+				"squad": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0036.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0065.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0054.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0013.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0022.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0027.png"
+				],
+				"bans": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0040.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0058.png"
+				]
+			}
+		},
+		"g2": {
+			"left": {
+				"squad": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0014.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0041.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0057.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0012.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0061.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0058.png"
+				],
+				"bans": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0048.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0045.png"
+				]
+			},
+			"right": {
+				"squad": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0017.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0050.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0036.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0027.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0022.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0065.png"
+				],
+				"bans": [
+					"https://enka.network/ui/zzz/IconInterKnotRole0049.png",
+					"https://enka.network/ui/zzz/IconInterKnotRole0056.png"
+				]
+			}
+		}
+	}
+}

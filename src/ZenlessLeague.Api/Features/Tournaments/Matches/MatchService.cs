@@ -1,5 +1,6 @@
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
+using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Storage;
 using ZenlessLeague.Api.Features.Teams;
@@ -18,6 +19,10 @@ public interface IMatchService
 	Task<TournamentMatchDto?> SubmitPlayerResultAsync(Guid tournamentId, Guid matchId, string callerPlayerId, SubmitPlayerResultRequest request, CancellationToken ct = default);
 
 	Task<TournamentMatchDto?> SetAdminResultAsync(Guid tournamentId, Guid matchId, SetAdminResultRequest request, CancellationToken ct = default);
+
+	// Parses a pasted Nexus result link for a solo match without saving anything, so the popup can
+	// show the result, the side mapping, and any values that couldn't be read before submitting.
+	Task<NexusPreviewDto?> PreviewNexusResultAsync(Guid tournamentId, Guid matchId, string callerPlayerId, NexusPreviewRequest request, CancellationToken ct = default);
 
 	Task<List<TournamentMatchDto>> ListAsync(Guid tournamentId, CancellationToken ct = default);
 	Task<TournamentMatchDto?> GetAsync(Guid tournamentId, Guid matchId, CancellationToken ct = default);
@@ -38,7 +43,10 @@ public class MatchService(
 	IChallongeClient challongeClient,
 	IHistoryService historyService,
 	IFirebaseStorageClient storageClient,
-	ITournamentNotifier notifier) : IMatchService
+	ITournamentNotifier notifier,
+	INexusClient nexusClient,
+	ITournamentRegistrationRepository registrationRepository,
+	ILogger<MatchService> logger) : IMatchService
 {
 	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
 	{
@@ -124,27 +132,16 @@ public class MatchService(
 			throw new MatchValidationException("Match result is already finalized.");
 		}
 
-		var uploadedScreenshotUrl = request.ResultScreenshot is not null
-			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
-			: null;
+		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
+			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
 
-		var trimmedP1 = request.ResultP1.Trim();
-		var trimmedP2 = request.ResultP2.Trim();
-		var resetResult = trimmedP1 != (match.ResultP1 ?? string.Empty) ||
-			trimmedP2 != (match.ResultP2 ?? string.Empty) ||
-			(match.ResultScreenshotUrl is not null && uploadedScreenshotUrl is not null);
-
-		if (resetResult)
+		if (isTeamMatch)
 		{
-			match.P1ApprovedResult = false;
-			match.P2ApprovedResult = false;
-			match.ResultP1 = trimmedP1;
-			match.ResultP2 = trimmedP2;
+			await ApplyTeamResultAsync(tournamentId, match, request, ct);
 		}
-
-		if (uploadedScreenshotUrl is not null)
+		else
 		{
-			match.ResultScreenshotUrl = uploadedScreenshotUrl;
+			await ApplySoloNexusResultAsync(tournament, match, request, ct);
 		}
 
 		if (callerIsP1)
@@ -158,9 +155,6 @@ public class MatchService(
 
 		if (match.P1ApprovedResult && match.P2ApprovedResult)
 		{
-			var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
-				?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
-
 			var p1Win = IsP1Win(tournament.GameMode, match.ResultP1!, match.ResultP2!);
 
 			var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
@@ -177,6 +171,38 @@ public class MatchService(
 		await matchRepository.SaveChangesAsync(ct);
 		await notifier.MatchChangedAsync(tournamentId, matchId, ct);
 		return (await ToDtosAsync([match], ct))[0];
+	}
+
+	public async Task<NexusPreviewDto?> PreviewNexusResultAsync(Guid tournamentId, Guid matchId, string callerPlayerId, NexusPreviewRequest request, CancellationToken ct = default)
+	{
+		var match = await matchRepository.GetByIdAsync(tournamentId, matchId, ct);
+		if (match is null)
+		{
+			return null;
+		}
+
+		var caller = await playerRepository.GetEntityByUidAsync(callerPlayerId, ct)
+			?? throw new MatchForbiddenException("Not a participant of this match.");
+		if (match.P1PlayerId != caller.Id && match.P2PlayerId != caller.Id && caller.Role < PlayerRole.Moderator)
+		{
+			throw new MatchForbiddenException("Not a participant of this match.");
+		}
+
+		if (match.P1TeamId is not null || match.P2TeamId is not null)
+		{
+			throw new MatchValidationException("Nexus result links are only supported for solo matches.");
+		}
+
+		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
+			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
+
+		var nexus = await LoadNexusResultAsync(tournament, match, request.Url, request.NexusP1Side, ct);
+		var (resultP1, resultP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+		return new NexusPreviewDto(
+			nexus.ResultId, nexus.Parsed.LeftName, nexus.Parsed.RightName, nexus.P1IsLeft,
+			nexus.Parsed.LeftTotal, nexus.Parsed.RightTotal, resultP1, resultP2,
+			nexus.Parsed.TotalGames, nexus.Parsed.CountedGames, nexus.Parsed.IsTie,
+			ToMissingDtos(nexus.Parsed, nexus.P1IsLeft));
 	}
 
 	public async Task<TournamentMatchDto?> SetAdminResultAsync(Guid tournamentId, Guid matchId, SetAdminResultRequest request, CancellationToken ct = default)
@@ -226,7 +252,28 @@ public class MatchService(
 		}
 		else
 		{
-			if (request.ResultP1 is null || request.ResultP2 is null)
+			if (request.NexusResultUrl is not null)
+			{
+				if (isTeamMatch)
+				{
+					throw new MatchValidationException("Nexus result links are only supported for solo matches.");
+				}
+
+				var nexus = await LoadNexusResultAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
+				var (nexusP1, nexusP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+				match.NexusResultId = nexus.ResultId;
+				match.NexusSnapshot = nexus.Json;
+				match.NexusP1IsLeft = nexus.P1IsLeft;
+
+				// Typed values win; the link only fills in what the moderator left empty.
+				request = request with
+				{
+					ResultP1 = string.IsNullOrWhiteSpace(request.ResultP1) ? nexusP1 : request.ResultP1,
+					ResultP2 = string.IsNullOrWhiteSpace(request.ResultP2) ? nexusP2 : request.ResultP2,
+				};
+			}
+
+			if (string.IsNullOrWhiteSpace(request.ResultP1) || string.IsNullOrWhiteSpace(request.ResultP2))
 			{
 				throw new MatchValidationException("resultP1 and resultP2 are required.");
 			}
@@ -360,6 +407,168 @@ public class MatchService(
 		}
 	}
 
+	// Team matches: typed result + screenshot, as before Nexus links existed. Any change to the
+	// result (or a replacement screenshot) resets both confirmations.
+	private async Task ApplyTeamResultAsync(Guid tournamentId, TournamentMatch match, SubmitPlayerResultRequest request, CancellationToken ct)
+	{
+		if (request.ResultP1 is null || request.ResultP2 is null)
+		{
+			throw new MatchValidationException("resultP1 and resultP2 are required.");
+		}
+
+		var uploadedScreenshotUrl = request.ResultScreenshot is not null
+			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
+			: null;
+
+		var trimmedP1 = request.ResultP1.Trim();
+		var trimmedP2 = request.ResultP2.Trim();
+		var resetResult = trimmedP1 != (match.ResultP1 ?? string.Empty) ||
+			trimmedP2 != (match.ResultP2 ?? string.Empty) ||
+			(match.ResultScreenshotUrl is not null && uploadedScreenshotUrl is not null);
+
+		if (resetResult)
+		{
+			match.P1ApprovedResult = false;
+			match.P2ApprovedResult = false;
+			match.ResultP1 = trimmedP1;
+			match.ResultP2 = trimmedP2;
+		}
+
+		if (uploadedScreenshotUrl is not null)
+		{
+			match.ResultScreenshotUrl = uploadedScreenshotUrl;
+		}
+	}
+
+	// Solo matches: the result comes only from a Nexus link. Without a link the caller is just
+	// confirming the result already stored. A new link, or the same link whose data changed on
+	// Nexus, resets both confirmations so the opponent sees and confirms what was actually stored.
+	private async Task ApplySoloNexusResultAsync(Tournament tournament, TournamentMatch match, SubmitPlayerResultRequest request, CancellationToken ct)
+	{
+		if (request.NexusResultUrl is null)
+		{
+			if (match.NexusResultId is null)
+			{
+				throw new MatchValidationException("Paste the Nexus result link.");
+			}
+
+			return;
+		}
+
+		var nexus = await LoadNexusResultAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
+		if (nexus.P1IsLeft is null)
+		{
+			throw new MatchValidationException("Couldn't match the Nexus player names — choose which side is yours.");
+		}
+
+		if (nexus.Parsed.CountedGames == 0)
+		{
+			throw new MatchValidationException("This Nexus result has no finished game yet.");
+		}
+
+		if (nexus.Parsed.IsTie)
+		{
+			throw new MatchValidationException("This Nexus result is a tie — ask a moderator to set the result.");
+		}
+
+		var (resultP1, resultP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+		var changed = nexus.ResultId != match.NexusResultId ||
+			nexus.P1IsLeft != match.NexusP1IsLeft ||
+			resultP1 != match.ResultP1 ||
+			resultP2 != match.ResultP2;
+
+		if (changed)
+		{
+			match.P1ApprovedResult = false;
+			match.P2ApprovedResult = false;
+			match.ResultP1 = resultP1;
+			match.ResultP2 = resultP2;
+			match.NexusResultId = nexus.ResultId;
+			match.NexusSnapshot = nexus.Json;
+			match.NexusP1IsLeft = nexus.P1IsLeft;
+		}
+	}
+
+	private sealed record LoadedNexusResult(string ResultId, string Json, NexusParsedResult Parsed, bool? P1IsLeft);
+
+	// Fetches + parses a pasted Nexus link and works out which Nexus side is P1: an explicit
+	// "left"/"right" from the caller wins, otherwise the names on Nexus are matched against the two
+	// players. P1IsLeft stays null when neither applies.
+	private async Task<LoadedNexusResult> LoadNexusResultAsync(Tournament tournament, TournamentMatch match, string url, string? p1Side, CancellationToken ct)
+	{
+		if (!NexusLink.TryParseId(url, out var resultId))
+		{
+			throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
+		}
+
+		if (match.P1PlayerId is not Guid p1Id || match.P2PlayerId is not Guid p2Id)
+		{
+			throw new MatchValidationException("Match does not have two known participants yet.");
+		}
+
+		var json = await nexusClient.GetResultJsonAsync(resultId, ct);
+		NexusParsedResult parsed;
+		try
+		{
+			parsed = NexusResultParser.Parse(json, tournament.GameMode);
+		}
+		catch (NexusFormatException ex)
+		{
+			// Nexus's API is undocumented and changes often — the raw response is what an admin
+			// needs to update NexusResultParser (Coolify → API app → Logs).
+			logger.LogError(ex, "Couldn't parse Nexus result {ResultId}; Nexus may have changed its format. Response: {Response}",
+				resultId, json.Length > 8000 ? json[..8000] + "…" : json);
+			throw;
+		}
+
+		var p1IsLeft = p1Side?.Trim().ToLowerInvariant() switch
+		{
+			"left" => true,
+			"right" => false,
+			null or "" => await MatchNexusSidesAsync(tournament.Id, p1Id, p2Id, parsed, ct),
+			_ => throw new MatchValidationException("nexusP1Side must be \"left\" or \"right\"."),
+		};
+
+		return new LoadedNexusResult(resultId, json, parsed, p1IsLeft);
+	}
+
+	private static (string? ResultP1, string? ResultP2) MapTotals(NexusParsedResult parsed, bool? p1IsLeft) => p1IsLeft switch
+	{
+		true => (parsed.LeftTotal, parsed.RightTotal),
+		false => (parsed.RightTotal, parsed.LeftTotal),
+		null => (null, null),
+	};
+
+	// A player is recognized by their Nexus nickname from this tournament's registration (the
+	// "DarteNickname" field), or failing that their site name / Discord username — case- and
+	// whitespace-insensitive. One recognized player is enough to place both; contradictory matches
+	// (e.g. both players look like "left") leave the sides unknown.
+	private async Task<bool?> MatchNexusSidesAsync(Guid tournamentId, Guid p1Id, Guid p2Id, NexusParsedResult parsed, CancellationToken ct)
+	{
+		var p1Names = await GetKnownNexusNamesAsync(tournamentId, p1Id, ct);
+		var p2Names = await GetKnownNexusNamesAsync(tournamentId, p2Id, ct);
+		var left = NormalizeName(parsed.LeftName);
+		var right = NormalizeName(parsed.RightName);
+
+		var saysP1IsLeft = p1Names.Contains(left) || p2Names.Contains(right);
+		var saysP1IsRight = p1Names.Contains(right) || p2Names.Contains(left);
+
+		return saysP1IsLeft == saysP1IsRight ? null : saysP1IsLeft;
+	}
+
+	private async Task<HashSet<string>> GetKnownNexusNamesAsync(Guid tournamentId, Guid playerId, CancellationToken ct)
+	{
+		var registration = await registrationRepository.FindExistingAsync(tournamentId, playerId, null, ct);
+		var player = await playerRepository.GetEntityByIdAsync(playerId, ct);
+
+		return new[] { registration?.Player1Details.DarteNickname, player?.Name, player?.DiscordUsername }
+			.Where(name => !string.IsNullOrWhiteSpace(name))
+			.Select(name => NormalizeName(name!))
+			.ToHashSet();
+	}
+
+	private static string NormalizeName(string name) => name.Trim().ToLowerInvariant();
+
 	private async Task<bool> IsTeamMemberAsync(Guid? teamId, Guid playerId, CancellationToken ct)
 	{
 		if (teamId is null)
@@ -479,14 +688,45 @@ public class MatchService(
 		return matches.Select(m => ToDto(m, uidsById)).ToList();
 	}
 
-	private static TournamentMatchDto ToDto(TournamentMatch m, Dictionary<Guid, string> uidsById) => new(
-		m.Id, m.TournamentId, m.ChallongeMatchId,
-		m.P1PlayerId is Guid p1 ? uidsById.GetValueOrDefault(p1) : null,
-		m.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) : null,
-		m.P1TeamId, m.P2TeamId, m.State,
-		m.WinnerPlayerId is Guid w ? uidsById.GetValueOrDefault(w) : null,
-		m.WinnerTeamId,
-		m.ResultScreenshotUrl, m.ResultP1, m.ResultP2, m.P1ApprovedResult, m.P2ApprovedResult,
-		m.TechLossPlayerId is Guid t ? uidsById.GetValueOrDefault(t) : null,
-		m.TechLossTeamId);
+	private static TournamentMatchDto ToDto(TournamentMatch m, Dictionary<Guid, string> uidsById)
+	{
+		// Re-derived from the stored snapshot rather than persisted, so the popup can show which
+		// values couldn't be read without an extra column. A snapshot that no longer parses (Nexus
+		// format change) just drops the details; the stored ResultP1/ResultP2 stay authoritative.
+		NexusParsedResult? nexus = null;
+		if (m.NexusSnapshot is not null)
+		{
+			try
+			{
+				nexus = NexusResultParser.Parse(m.NexusSnapshot, expectedMode: null);
+			}
+			catch (Exception ex) when (ex is NexusResultException or NexusFormatException)
+			{
+			}
+		}
+
+		return new(
+			m.Id, m.TournamentId, m.ChallongeMatchId,
+			m.P1PlayerId is Guid p1 ? uidsById.GetValueOrDefault(p1) : null,
+			m.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) : null,
+			m.P1TeamId, m.P2TeamId, m.State,
+			m.WinnerPlayerId is Guid w ? uidsById.GetValueOrDefault(w) : null,
+			m.WinnerTeamId,
+			m.ResultScreenshotUrl, m.ResultP1, m.ResultP2, m.P1ApprovedResult, m.P2ApprovedResult,
+			m.TechLossPlayerId is Guid t ? uidsById.GetValueOrDefault(t) : null,
+			m.TechLossTeamId,
+			m.NexusResultId,
+			nexus?.TotalGames,
+			nexus?.CountedGames,
+			nexus is null ? null : ToMissingDtos(nexus, m.NexusP1IsLeft));
+	}
+
+	private static List<NexusMissingDto> ToMissingDtos(NexusParsedResult parsed, bool? p1IsLeft) =>
+		parsed.Missing.Select(v => new NexusMissingDto(v.Game, SideLabel(v.Side, p1IsLeft))).ToList();
+
+	private static string SideLabel(NexusSide side, bool? p1IsLeft) => p1IsLeft switch
+	{
+		null => side == NexusSide.Left ? "left" : "right",
+		_ => (side == NexusSide.Left) == p1IsLeft.Value ? "p1" : "p2",
+	};
 }

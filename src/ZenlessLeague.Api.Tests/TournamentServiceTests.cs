@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
@@ -28,7 +29,10 @@ public class TournamentServiceTests
 			challonge,
 			historyService,
 			new FakeFirebaseStorageClient(),
-			new FakeTournamentNotifier());
+			new FakeTournamentNotifier(),
+			new FakeNexusClient(),
+			new TournamentRegistrationRepository(context),
+			NullLogger<MatchService>.Instance);
 
 		var notifier = new FakeTournamentNotifier();
 		var discord = new FakeDiscordClient();
