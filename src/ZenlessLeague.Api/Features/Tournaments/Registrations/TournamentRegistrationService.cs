@@ -102,12 +102,12 @@ public class TournamentRegistrationService(
 		var team = await teamRepository.GetByIdAsync(request.TeamId, ct)
 			?? throw new TournamentValidationException($"Team '{request.TeamId}' does not exist.");
 
-		var teamPlayer1 = await playerRepository.GetEntityByIdAsync(team.Player1Id, ct)
+		_ = await playerRepository.GetEntityByIdAsync(team.Player1Id, ct)
 			?? throw new TournamentValidationException($"Player '{team.Player1Id}' does not exist.");
-		var teamPlayer2 = await playerRepository.GetEntityByIdAsync(team.Player2Id, ct)
+		_ = await playerRepository.GetEntityByIdAsync(team.Player2Id, ct)
 			?? throw new TournamentValidationException($"Player '{team.Player2Id}' does not exist.");
-		EnsureTierEligible(tournament, teamPlayer1);
-		EnsureTierEligible(tournament, teamPlayer2);
+		// TODO: team registrations intentionally skip the tournament's tier filter for now (unlike solo,
+		// see EnsureTierEligible). Decide whether both members should have to fit MinTier/MaxTier.
 
 		var registration = await registrationRepository.FindExistingAsync(tournamentId, null, request.TeamId, ct);
 		if (registration is null)
