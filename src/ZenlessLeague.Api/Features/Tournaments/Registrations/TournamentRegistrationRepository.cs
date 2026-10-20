@@ -46,7 +46,9 @@ public class TournamentRegistrationRepository(AppDbContext context) : ITournamen
 
 	public Task<TournamentRegistration?> GetMostRecentSoloByPlayerAsync(Guid playerId, CancellationToken ct = default) =>
 		context.TournamentRegistrations
-			.Where(r => r.PlayerId == playerId)
+			// Admin-added stubs (StubDetails) carry no screenshots or form fields — never a useful
+			// "last registration" to prefill from or fall back to.
+			.Where(r => r.PlayerId == playerId && r.Player1Details.RosterScreenshotUrl != null)
 			.OrderByDescending(r => r.UpdatedAt)
 			.FirstOrDefaultAsync(ct);
 

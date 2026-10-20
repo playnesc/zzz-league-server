@@ -10,7 +10,7 @@ public interface IPlayerService
 
 	// uids: optional filter (GET /api/players?uids=...) for batch-resolving a known set of
 	// players; null returns the whole roster. Always the lean list shape — DiscordId/Role/
-	// CreatedAt/LastRegistration aren't included since no list-context consumer needs them.
+	// CreatedAt aren't included since no list-context consumer needs them.
 	Task<List<PlayerListItemDto>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default);
 	Task<bool> DeleteAsync(string uid, CancellationToken ct = default);
 	Task<PlayerDto> ClaimAsync(ClaimPlayerRequest request, CancellationToken ct = default);
@@ -19,6 +19,9 @@ public interface IPlayerService
 
 	Task<PlayerDto?> UpdateNameAsync(string uid, string name, CancellationToken ct = default);
 	Task<PlayerDto?> UpdateAvatarAsync(string uid, string avatar, CancellationToken ct = default);
+
+	// Null when the player doesn't exist or has never filled in a solo registration form.
+	Task<LastRegistrationDto?> GetLastRegistrationAsync(string uid, CancellationToken ct = default);
 }
 
 /// <summary>Thrown for player validation failures (duplicate uid/name, missing claim target) — maps to 400.</summary>
@@ -46,13 +49,13 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 			CreatedAt = DateTimeOffset.UtcNow,
 		}, ct);
 
-		return await BuildDtoAsync(player, ct);
+		return ToDto(player);
 	}
 
 	public async Task<PlayerDto?> GetAsync(string uid, CancellationToken ct = default)
 	{
 		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
-		return player is null ? null : await BuildDtoAsync(player, ct);
+		return player is null ? null : ToDto(player);
 	}
 
 	public async Task<List<PlayerListItemDto>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default) =>
@@ -77,7 +80,7 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 		existing.Uid = request.NewUid;
 		await playerRepository.SaveChangesAsync(ct);
-		return await BuildDtoAsync(existing, ct);
+		return ToDto(existing);
 	}
 
 	public async Task<PlayerDto?> UpdateRoleAsync(string uid, UpdatePlayerRoleRequest request, CancellationToken ct = default)
@@ -102,7 +105,7 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 		player.Role = request.Role;
 		await playerRepository.SaveChangesAsync(ct);
-		return await BuildDtoAsync(player, ct);
+		return ToDto(player);
 	}
 
 	public async Task<List<StaffMemberDto>> ListStaffAsync(CancellationToken ct = default) =>
@@ -130,7 +133,7 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 		player.Name = name;
 		await playerRepository.SaveChangesAsync(ct);
-		return await BuildDtoAsync(player, ct);
+		return ToDto(player);
 	}
 
 	public async Task<PlayerDto?> UpdateAvatarAsync(string uid, string avatar, CancellationToken ct = default)
@@ -143,29 +146,33 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 		player.Avatar = avatar;
 		await playerRepository.SaveChangesAsync(ct);
-		return await BuildDtoAsync(player, ct);
+		return ToDto(player);
 	}
 
-	// LastRegistration isn't stored on Player (see the removed LastRegistrationCache) — it's the
-	// player's most recent solo registration, queried live. Only worth doing for a single full
-	// PlayerDto; the lean ListAsync/ToListItemDto path never included this field at all.
-	private async Task<PlayerDto> BuildDtoAsync(Player p, CancellationToken ct)
+	// Not stored on Player — it's the player's most recent solo registration, queried live, and
+	// served by its own endpoint so it's always fresh (it used to ride along on PlayerDto, where the
+	// frontend cached it for the whole session and went stale after the next registration).
+	public async Task<LastRegistrationDto?> GetLastRegistrationAsync(string uid, CancellationToken ct = default)
 	{
-		var lastRegistration = await registrationRepository.GetMostRecentSoloByPlayerAsync(p.Id, ct);
-		return ToDto(p, lastRegistration?.Player1Details);
+		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
+		if (player is null)
+		{
+			return null;
+		}
+
+		var d = (await registrationRepository.GetMostRecentSoloByPlayerAsync(player.Id, ct))?.Player1Details;
+		return d is null ? null : new LastRegistrationDto(
+			d.GameUid, d.PrizeAsMoney, d.PrizeUid, d.DarteNickname, d.DartePresetName, d.RosterName,
+			d.RosterScreenshotUrl, d.HoyolabScreenshotUrl);
 	}
 
 	// Internal, not private — AuthService reuses this exact mapping so link/unlink can return the
 	// updated player without duplicating the mapping.
-	internal static PlayerDto ToDto(Player p, PlayerRegistrationDetails? lastRegistration = null) => new(
+	internal static PlayerDto ToDto(Player p) => new(
 		p.Uid, p.Name, p.DiscordId, p.DiscordUsername,
 		p.Elo, p.TournamentPoints, p.IsMidConfirmed, p.IsHighConfirmed,
 		p.Wins, p.Losses, p.PlayedTournamentCount, p.SeasonalPlayedTournamentCount,
-		p.LastPlayedTournamentTimestamp, p.Avatar, p.Role, p.CreatedAt,
-		lastRegistration is null ? null : new LastRegistrationCacheDto(
-			lastRegistration.GameUid, lastRegistration.PrizeAsMoney, lastRegistration.PrizeUid,
-			lastRegistration.DarteNickname, lastRegistration.DartePresetName, lastRegistration.RosterName,
-			lastRegistration.RosterScreenshotUrl, lastRegistration.HoyolabScreenshotUrl));
+		p.LastPlayedTournamentTimestamp, p.Avatar, p.Role, p.CreatedAt);
 
 	private static PlayerListItemDto ToListItemDto(Player p) => new(
 		p.Uid, p.Name, p.DiscordUsername,

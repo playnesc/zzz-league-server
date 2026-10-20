@@ -159,4 +159,65 @@ public class PlayerServiceTests
 			service.UpdateRoleAsync("u1", new UpdatePlayerRoleRequest(PlayerRole.Player)));
 		Assert.Equal(PlayerRole.Admin, (await context.Players.SingleAsync()).Role);
 	}
+
+	private static void SeedSoloRegistration(
+		AppDbContext context, Guid playerId, string rosterName, string? rosterScreenshotUrl, DateTimeOffset updatedAt) =>
+		context.TournamentRegistrations.Add(new TournamentRegistration
+		{
+			Id = Guid.NewGuid(),
+			TournamentId = Guid.NewGuid(),
+			PlayerId = playerId,
+			Player1Details = new PlayerRegistrationDetails
+			{
+				GameUid = "game-uid",
+				DarteNickname = "nick",
+				DartePresetName = "preset",
+				RosterName = rosterName,
+				RosterScreenshotUrl = rosterScreenshotUrl,
+				HoyolabScreenshotUrl = rosterScreenshotUrl is null ? null : "hoyolab.png",
+			},
+			RegisteredAt = updatedAt,
+			UpdatedAt = updatedAt,
+		});
+
+	[Fact]
+	public async Task GetLastRegistrationAsync_ReturnsMostRecentlyUpdatedSoloRegistration()
+	{
+		await using var context = CreateContext();
+		var player = await SeedPlayerAsync(context, "u1", "Ann");
+		var now = DateTimeOffset.UtcNow;
+		SeedSoloRegistration(context, player.Id, "older", "old.png", now.AddDays(-2));
+		SeedSoloRegistration(context, player.Id, "newer", "new.png", now.AddDays(-1));
+		await context.SaveChangesAsync();
+
+		var result = await CreateService(context).GetLastRegistrationAsync("u1");
+
+		Assert.NotNull(result);
+		Assert.Equal("newer", result!.RosterName);
+		Assert.Equal("new.png", result.RosterScreenshotUrl);
+	}
+
+	[Fact]
+	public async Task GetLastRegistrationAsync_SkipsAdminAddedStubWithoutScreenshots()
+	{
+		await using var context = CreateContext();
+		var player = await SeedPlayerAsync(context, "u1", "Ann");
+		var now = DateTimeOffset.UtcNow;
+		SeedSoloRegistration(context, player.Id, "real", "real.png", now.AddDays(-2));
+		SeedSoloRegistration(context, player.Id, "", null, now.AddDays(-1));
+		await context.SaveChangesAsync();
+
+		var result = await CreateService(context).GetLastRegistrationAsync("u1");
+
+		Assert.Equal("real", result?.RosterName);
+	}
+
+	[Fact]
+	public async Task GetLastRegistrationAsync_NoRegistrations_ReturnsNull()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Ann");
+
+		Assert.Null(await CreateService(context).GetLastRegistrationAsync("u1"));
+	}
 }

@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
-using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Features.Auth;
 
@@ -19,7 +18,6 @@ public interface IAuthService
 
 public class AuthService(
 	IPlayerRepository playerRepository,
-	ITournamentRegistrationRepository registrationRepository,
 	IDiscordOAuthClient discordOAuthClient,
 	IDiscordClient discordClient,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
@@ -67,7 +65,7 @@ public class AuthService(
 		await playerRepository.SaveChangesAsync(ct);
 
 		await discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct);
-		return await BuildDtoAsync(player, ct);
+		return PlayerService.ToDto(player);
 	}
 
 	public async Task<PlayerDto?> UnlinkDiscordAsync(string uid, CancellationToken ct = default)
@@ -89,13 +87,7 @@ public class AuthService(
 		player.DiscordId = null;
 		player.DiscordUsername = null;
 		await playerRepository.SaveChangesAsync(ct);
-		return await BuildDtoAsync(player, ct);
-	}
-
-	private async Task<PlayerDto> BuildDtoAsync(Player p, CancellationToken ct)
-	{
-		var lastRegistration = await registrationRepository.GetMostRecentSoloByPlayerAsync(p.Id, ct);
-		return PlayerService.ToDto(p, lastRegistration?.Player1Details);
+		return PlayerService.ToDto(player);
 	}
 
 	private async Task<string> ResolveAvailableNameAsync(string baseName, CancellationToken ct)

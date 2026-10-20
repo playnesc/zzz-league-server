@@ -13,7 +13,9 @@ public record UpdatePlayerNameRequest(string Name);
 
 public record UpdatePlayerAvatarRequest(string Avatar);
 
-public record LastRegistrationCacheDto(
+// GET /api/players/me/last-registration — the caller's most recent form-filled solo registration,
+// for the register page's "fill from previous registration" button.
+public record LastRegistrationDto(
 	string GameUid,
 	bool PrizeAsMoney,
 	string? PrizeUid,
@@ -39,12 +41,11 @@ public record PlayerDto(
 	DateTimeOffset? LastPlayedTournamentTimestamp,
 	string? Avatar,
 	PlayerRole Role,
-	DateTimeOffset CreatedAt,
-	LastRegistrationCacheDto? LastRegistration);
+	DateTimeOffset CreatedAt);
 
 // Lean shape for GET /api/players (optionally filtered by ?uids=) — everything list-context
 // consumers (leaderboard, pickers, tournament rosters, history rows) actually render. Excludes
-// DiscordId/Role/CreatedAt/LastRegistration, which are only ever used off a single-player fetch
+// DiscordId/Role/CreatedAt, which are only ever used off a single-player fetch
 // (the logged-in user's own PlayerDto), never in a list of other players.
 public record PlayerListItemDto(
 	string Uid,

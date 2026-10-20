@@ -4,7 +4,6 @@ using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
-using ZenlessLeague.Api.Features.Tournaments;
 
 namespace ZenlessLeague.Api.Tests;
 
@@ -25,7 +24,7 @@ public class AuthServiceTests
 		});
 		var roleAssignment = new DiscordRoleAssignmentService(new PlayerRepository(context), discord, options);
 		var service = new AuthService(
-			new PlayerRepository(context), new TournamentRegistrationRepository(context),
+			new PlayerRepository(context),
 			oauth, discord, roleAssignment, options, new FakeFirebaseCustomTokenSigner());
 
 		return (service, oauth, discord);

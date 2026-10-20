@@ -25,8 +25,16 @@ public static class PlayerEndpoints
 			Results.Ok(await service.ListStaffAsync(ct)))
 			.RequireAuthorization("Admin");
 
-		// Self-or-admin: the full PlayerDto includes LastRegistration (PrizeUid, roster/Hoyolab
-		// screenshot URLs) — not safe to expose for arbitrary other players.
+		// The caller's own most recent solo registration details (PrizeUid, screenshot URLs), for
+		// the register page's prefill button. 204 when there's nothing to prefill from.
+		group.MapGet("/me/last-registration", async (HttpContext http, IPlayerService service, CancellationToken ct) =>
+		{
+			var lastRegistration = await service.GetLastRegistrationAsync(http.User.GetUid()!, ct);
+			return lastRegistration is null ? Results.NoContent() : Results.Ok(lastRegistration);
+		}).RequireAuthorization();
+
+		// Self-or-admin: the full PlayerDto includes DiscordId — not something to expose for
+		// arbitrary other players (lists use the lean PlayerListItemDto instead).
 		group.MapGet("/{uid}", async (string uid, HttpContext http, IAuthorizationService authorization, IPlayerService service, CancellationToken ct) =>
 		{
 			if (http.User.GetUid() != uid && !(await authorization.AuthorizeAsync(http.User, "Admin")).Succeeded)
