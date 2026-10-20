@@ -17,6 +17,15 @@ public static class TournamentEndpoints
 		group.MapGet("/", async (HttpContext http, IAuthorizationService authorization, ITournamentService service, CancellationToken ct) =>
 			Results.Ok(await service.ListAsync(await TournamentVisibility.CanSeeHiddenAsync(http.User, authorization), ct)));
 
+		// Numbered pages, newest first: `page` is 1-based, `pageSize` defaults to DefaultPageSize.
+		// The unpaginated list above stays for the home page / live-updated LeagueData store.
+		group.MapGet("/paged", async (int? page, int? pageSize, HttpContext http, IAuthorizationService authorization, ITournamentService service, CancellationToken ct) =>
+			Results.Ok(await service.ListPageAsync(
+				await TournamentVisibility.CanSeeHiddenAsync(http.User, authorization),
+				Math.Max(page ?? 1, 1),
+				Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize),
+				ct)));
+
 		group.MapGet("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
 		{
 			var tournament = await service.GetAsync(id, ct);
@@ -79,6 +88,9 @@ public static class TournamentEndpoints
 			}
 		}).RequireAuthorization("Admin");
 	}
+
+	private const int DefaultPageSize = 21;
+	private const int MaxPageSize = 100;
 
 	private static async Task<IResult> Handle(Task<TournamentDto?> action)
 	{

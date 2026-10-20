@@ -318,6 +318,39 @@ public class TournamentServiceTests
 	}
 
 	[Fact]
+	public async Task ListPageAsync_ReturnsNewestFirstSliceWithTotalCount()
+	{
+		await using var context = CreateContext();
+		var start = DateTimeOffset.UtcNow;
+		var seeded = new List<Tournament>();
+		for (var i = 0; i < 5; i++)
+		{
+			var t = await SeedTournamentAsync(context);
+			t.TournamentStartDate = start.AddDays(i);
+			seeded.Add(t);
+		}
+		var hidden = await SeedTournamentAsync(context);
+		hidden.Visible = false;
+		hidden.TournamentStartDate = start.AddDays(10);
+		await context.SaveChangesAsync();
+		var (service, _, _, _, _) = CreateService(context);
+
+		var page2 = await service.ListPageAsync(includeHidden: false, page: 2, pageSize: 2);
+
+		Assert.Equal(5, page2.TotalCount);
+		Assert.Equal(2, page2.Page);
+		Assert.Equal([seeded[2].Id, seeded[1].Id], page2.Items.Select(t => t.Id));
+
+		var pastEnd = await service.ListPageAsync(includeHidden: false, page: 4, pageSize: 2);
+		Assert.Empty(pastEnd.Items);
+		Assert.Equal(5, pastEnd.TotalCount);
+
+		var withHidden = await service.ListPageAsync(includeHidden: true, page: 1, pageSize: 2);
+		Assert.Equal(6, withHidden.TotalCount);
+		Assert.Equal(hidden.Id, withHidden.Items[0].Id);
+	}
+
+	[Fact]
 	public async Task GetVisibilityAsync_ReturnsFlagOrNullWhenMissing()
 	{
 		await using var context = CreateContext();

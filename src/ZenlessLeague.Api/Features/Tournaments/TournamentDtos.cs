@@ -70,6 +70,8 @@ public record TournamentDto(
 	string? DiscordRoleName,
 	string? DiscordChannelName);
 
+public record TournamentPageDto(List<TournamentDto> Items, int Page, int PageSize, int TotalCount);
+
 public record SplitTournamentRequest(List<List<string>> DivisionGroups);
 
 public record SplitTournamentResult(List<Guid> DivisionTournamentIds);

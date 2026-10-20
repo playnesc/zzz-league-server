@@ -9,6 +9,7 @@ public interface ITournamentService
 	Task<TournamentDto> CreateAsync(CreateTournamentRequest request, CancellationToken ct = default);
 	Task<TournamentDto?> GetAsync(Guid id, CancellationToken ct = default);
 	Task<List<TournamentDto>> ListAsync(bool includeHidden, CancellationToken ct = default);
+	Task<TournamentPageDto> ListPageAsync(bool includeHidden, int page, int pageSize, CancellationToken ct = default);
 	Task<TournamentDto?> UpdateAsync(Guid id, UpdateTournamentRequest request, CancellationToken ct = default);
 	Task<TournamentDto?> CloseRegistrationAsync(Guid id, CancellationToken ct = default);
 }
@@ -59,6 +60,16 @@ public class TournamentService(
 
 	public async Task<List<TournamentDto>> ListAsync(bool includeHidden, CancellationToken ct = default) =>
 		await ToDtosAsync(await tournamentRepository.ListAsync(includeHidden, ct), ct);
+
+	// `page` is 1-based. A page past the end comes back with no items but the real TotalCount, so
+	// the caller can clamp to the last page. Skip is computed in long so a huge `page` query value
+	// can't overflow into a negative offset.
+	public async Task<TournamentPageDto> ListPageAsync(bool includeHidden, int page, int pageSize, CancellationToken ct = default)
+	{
+		var skip = (int)Math.Min((long)(page - 1) * pageSize, int.MaxValue);
+		var (items, totalCount) = await tournamentRepository.ListPageAsync(includeHidden, skip, pageSize, ct);
+		return new TournamentPageDto(await ToDtosAsync(items, ct), page, pageSize, totalCount);
+	}
 
 	public async Task<TournamentDto?> UpdateAsync(Guid id, UpdateTournamentRequest request, CancellationToken ct = default)
 	{
