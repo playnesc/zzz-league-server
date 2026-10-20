@@ -623,6 +623,23 @@ public class MatchServiceTests
 	}
 
 	[Fact]
+	public async Task SetAdminResultAsync_TechLossAfterTypedResult_HistoryEntryIsTaggedTechLoss()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, challonge, _) = CreateService(context);
+
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest("01:00", "02:00"));
+		await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest(TechLossPlayerId: "p1"));
+
+		var stored = await context.TournamentMatches.SingleAsync(m => m.Id == match.Id);
+		var entry = await context.HistoryEntries.SingleAsync(e => e.Id == stored.HistoryEntryId);
+		Assert.Equal(TournamentMatchKind.TechLoss, entry.Kind);
+	}
+
+	[Fact]
 	public async Task SetAdminResultAsync_Override_ReversesOldHistoryBeforeRegisteringNew()
 	{
 		await using var context = CreateContext();

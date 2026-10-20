@@ -1,7 +1,7 @@
 namespace ZenlessLeague.Api.Features.History;
 
-// Kind is None (and TournamentMatchId is set) for a real bracket-match entry; the other values
-// tag entries that aren't tied to a bracket match.
+// Kind is None (and TournamentMatchId is set) for a real bracket-match entry, or TechLoss when that
+// bracket match was decided by tech loss; Custom/Adjustment tag entries not tied to a bracket match.
 public enum TournamentMatchKind { None, Custom, TechLoss, Adjustment }
 
 public class HistoryEntry
