@@ -25,6 +25,14 @@ public static class PlayerEndpoints
 			Results.Ok(await service.ListStaffAsync(ct)))
 			.RequireAuthorization("Admin");
 
+		// The caller's own full player — used by the SvelteKit server to resolve its session cookie
+		// (see SessionTokenIssuer). Literal segment, so it wins over /{uid} below.
+		group.MapGet("/me", async (HttpContext http, IPlayerService service, CancellationToken ct) =>
+		{
+			var player = await service.GetAsync(http.User.GetUid()!, ct);
+			return player is null ? Results.NotFound() : Results.Ok(player);
+		}).RequireAuthorization();
+
 		// The caller's own most recent solo registration details (PrizeUid, screenshot URLs), for
 		// the register page's prefill button. 204 when there's nothing to prefill from.
 		group.MapGet("/me/last-registration", async (HttpContext http, IPlayerService service, CancellationToken ct) =>

@@ -65,8 +65,30 @@ var authAuthority = builder.Configuration["Auth:Authority"]
 	?? throw new InvalidOperationException("Auth:Authority is not configured.");
 var authAudience = builder.Configuration["Auth:Audience"]
 	?? throw new InvalidOperationException("Auth:Audience is not configured.");
+var sessionSigningKey = SessionTokenIssuer.CreateSigningKey(builder.Configuration["Auth:SessionSigningKey"]
+	?? throw new InvalidOperationException("Auth:SessionSigningKey is not configured."));
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+// Two kinds of Bearer token: Firebase ID tokens from the browser, and our own session tokens from
+// the SvelteKit server (see SessionTokenIssuer). The default scheme just routes each request to the
+// right one by the token's issuer, so every endpoint — including ones where auth is optional —
+// accepts both without listing schemes.
+const string bearerSelectorScheme = "BearerSelector";
+builder.Services.AddAuthentication(bearerSelectorScheme)
+	.AddPolicyScheme(bearerSelectorScheme, null, options =>
+	{
+		options.ForwardDefaultSelector = context =>
+		{
+			var header = context.Request.Headers.Authorization.ToString();
+			return header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+				&& SessionTokenIssuer.IsSessionToken(header["Bearer ".Length..].Trim())
+				? SessionTokenIssuer.Scheme
+				: JwtBearerDefaults.AuthenticationScheme;
+		};
+	})
+	.AddJwtBearer(SessionTokenIssuer.Scheme, options =>
+	{
+		options.TokenValidationParameters = SessionTokenIssuer.CreateValidationParameters(sessionSigningKey);
+	})
 	.AddJwtBearer(options =>
 	{
 		options.Authority = authAuthority;
@@ -100,6 +122,7 @@ builder.Services.AddAuthorizationBuilder()
 	.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)));
 
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
+builder.Services.AddSingleton<ISessionTokenIssuer>(new SessionTokenIssuer(sessionSigningKey, TimeProvider.System));
 
 builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
