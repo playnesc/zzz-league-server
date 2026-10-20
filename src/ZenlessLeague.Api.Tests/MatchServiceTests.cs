@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Nexus;
@@ -95,7 +96,8 @@ public class MatchServiceTests
 		return (tournament, match, team1, team2);
 	}
 
-	private static (IMatchService Service, FakeChallongeClient Challonge, FakeTournamentNotifier Notifier) CreateService(AppDbContext context, FakeNexusClient? nexus = null)
+	private static (IMatchService Service, FakeChallongeClient Challonge, FakeTournamentNotifier Notifier) CreateService(
+		AppDbContext context, FakeNexusClient? nexus = null, bool parseNexusResults = true)
 	{
 		var challonge = new FakeChallongeClient();
 		var playerRepository = new PlayerRepository(context);
@@ -113,7 +115,8 @@ public class MatchServiceTests
 			notifier,
 			nexus ?? NexusFixtures.ClientWithSamples(),
 			new TournamentRegistrationRepository(context),
-			NullLogger<MatchService>.Instance);
+			NullLogger<MatchService>.Instance,
+			Options.Create(new NexusOptions { ParseResults = parseNexusResults }));
 		return (service, challonge, notifier);
 	}
 
@@ -365,6 +368,151 @@ public class MatchServiceTests
 			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("nothingplayed00"), NexusP1Side: "left")));
 		await Assert.ThrowsAsync<MatchValidationException>(() => service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
 			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("tiedresult00000"), NexusP1Side: "left")));
+	}
+
+	// ---- NexusOptions.ParseResults off (current): typed result + link stored as proof ----
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_TypedResultWithNexusLink_BothApprove_FinalizesAndRegistersHistory()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, challonge, notifier) = CreateService(context, parseNexusResults: false);
+
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		// p1 submits typed times + the link — not both approved yet, match stays open.
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(" 03:43 ", "04:54", NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId)));
+		Assert.NotNull(afterP1);
+		Assert.True(afterP1!.P1ApprovedResult);
+		Assert.False(afterP1.P2ApprovedResult);
+		Assert.NotEqual("complete", afterP1.State);
+		Assert.Equal("03:43", afterP1.ResultP1);
+		Assert.Equal("04:54", afterP1.ResultP2);
+		Assert.Equal(NexusFixtures.ShiyuFinishedId, afterP1.NexusResultId);
+		Assert.Null(afterP1.NexusMissing); // not fetched, so nothing parsed
+
+		// p2 confirms the same values without re-sending the link — triggers finalize.
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("03:43", "04:54"));
+		Assert.NotNull(afterP2);
+		Assert.Equal("complete", afterP2!.State);
+		Assert.Equal("p1", afterP2.WinnerPlayerId); // 3:43 < 4:54
+		Assert.Equal(NexusFixtures.ShiyuFinishedId, afterP2.NexusResultId);
+
+		Assert.Equal(("ctid", "555", "c1", "c2", true, "0"), challonge.LastUpdateMatchResult);
+
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		Assert.Equal(1, p1.Wins);
+		Assert.True(p1.TournamentPoints > 0);
+
+		var history = await context.HistoryEntries.ToListAsync();
+		Assert.Single(history);
+		Assert.Equal(match.Id, history[0].TournamentMatchId);
+
+		Assert.Contains((tournament.Id, match.Id), notifier.MatchChanged);
+		Assert.Contains(tournament.Id, notifier.MatchesSynced);
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_DeadlyAssault_HigherScoreWins()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context, gameMode: TournamentGameMode.DeadlyAssault);
+		var (service, challonge, _) = CreateService(context, parseNexusResults: false);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest("81110", "41110", NexusResultUrl: NexusFixtures.Link(NexusFixtures.DeadlyAssaultId)));
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("81110", "41110"));
+
+		Assert.Equal("complete", afterP2!.State);
+		Assert.Equal("p1", afterP2.WinnerPlayerId); // 81110 > 41110
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_SoloWithoutLinkOrResult_Throws()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context, parseNexusResults: false);
+
+		// The link is the proof for solo matches, so typed values alone aren't enough...
+		await Assert.ThrowsAsync<MatchValidationException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("1:00", "1:30")));
+		// ...and neither is a link without typed values.
+		await Assert.ThrowsAsync<MatchValidationException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+				new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId))));
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_ChangedResultOrLink_ResetsOpponentApproval()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context, parseNexusResults: false);
+		var link = NexusFixtures.Link(NexusFixtures.ShiyuFinishedId);
+
+		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest("03:43", "04:54", NexusResultUrl: link));
+		var afterTimeChange = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest("03:43", "04:50"));
+
+		Assert.False(afterTimeChange!.P1ApprovedResult);
+		Assert.True(afterTimeChange.P2ApprovedResult);
+		Assert.Equal("04:50", afterTimeChange.ResultP2);
+		Assert.NotEqual("complete", afterTimeChange.State);
+
+		// p1 confirms with a different link — the link change resets p2's confirmation.
+		var afterLinkChange = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest("03:43", "04:50", NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuUnfinishedId)));
+
+		Assert.True(afterLinkChange!.P1ApprovedResult);
+		Assert.False(afterLinkChange.P2ApprovedResult);
+		Assert.Equal(NexusFixtures.ShiyuUnfinishedId, afterLinkChange.NexusResultId);
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_NotANexusLink_Throws()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, _, _) = CreateService(context, parseNexusResults: false);
+
+		await Assert.ThrowsAsync<NexusResultException>(() =>
+			service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+				new SubmitPlayerResultRequest("03:43", "04:54", NexusResultUrl: "https://example.com/results/cmvfrhirw0i2652vtboz37ace/obs")));
+	}
+
+	[Fact]
+	public async Task SubmitPlayerResultAsync_ParsingOff_UnknownNexusResult_IsStoredWithoutFetching()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		// Empty fake client: any fetch would fail with "not found".
+		var (service, _, _) = CreateService(context, new FakeNexusClient(), parseNexusResults: false);
+
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest("03:43", "04:54", NexusResultUrl: "https://nexus-shiyu.com/results/doesnotexist0000/obs"));
+
+		Assert.Equal("doesnotexist0000", afterP1!.NexusResultId);
+	}
+
+	[Fact]
+	public async Task SetAdminResultAsync_ParsingOff_NexusLink_StoredAsProofTypedResultsUsed()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		var (service, challonge, _) = CreateService(context, new FakeNexusClient(), parseNexusResults: false);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c2", "c1", "c2")];
+
+		var result = await service.SetAdminResultAsync(tournament.Id, match.Id,
+			new SetAdminResultRequest("05:00", "03:43", NexusResultUrl: NexusFixtures.Link(NexusFixtures.ShiyuFinishedId)));
+
+		Assert.Equal("complete", result!.State);
+		Assert.Equal("05:00", result.ResultP1);
+		Assert.Equal("03:43", result.ResultP2);
+		Assert.Equal("p2", result.WinnerPlayerId);
+		Assert.Equal(NexusFixtures.ShiyuFinishedId, result.NexusResultId);
 	}
 
 	[Fact]

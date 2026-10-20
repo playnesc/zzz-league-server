@@ -1,9 +1,11 @@
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
-// Solo matches: the result comes from NexusResultUrl (ResultP1/ResultP2/ResultScreenshot are
-// ignored); omit it to just toggle your confirmation of the result already stored. Team matches:
-// ResultP1/ResultP2 are required and ResultScreenshot is a base64 data-url image, as before.
-// NexusP1Side ("left"/"right") is only needed when the Nexus names couldn't be matched to players.
+// Solo matches, NexusOptions.ParseResults on: the result comes from NexusResultUrl
+// (ResultP1/ResultP2/ResultScreenshot are ignored); omit it to just toggle your confirmation of the
+// result already stored. NexusP1Side ("left"/"right") is only needed when the Nexus names couldn't
+// be matched to players. ParseResults off (current): ResultP1/ResultP2 are required and
+// NexusResultUrl is stored as proof without being fetched (required unless one is already stored).
+// Team matches: ResultP1/ResultP2 are required and ResultScreenshot is a base64 data-url image.
 public record SubmitPlayerResultRequest(
 	string? ResultP1 = null,
 	string? ResultP2 = null,
@@ -11,8 +13,8 @@ public record SubmitPlayerResultRequest(
 	string? NexusResultUrl = null,
 	string? NexusP1Side = null);
 
-// Moderator-typed ResultP1/ResultP2 always win; a NexusResultUrl is stored with the match and
-// fills in whichever result the moderator left empty.
+// Moderator-typed ResultP1/ResultP2 always win; a NexusResultUrl is stored with the match and,
+// when NexusOptions.ParseResults is on, fills in whichever result the moderator left empty.
 public record SetAdminResultRequest(
 	string? ResultP1 = null,
 	string? ResultP2 = null,

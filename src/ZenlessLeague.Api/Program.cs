@@ -127,6 +127,7 @@ builder.Services.Configure<ChallongeOptions>(builder.Configuration.GetSection("C
 builder.Services.AddHttpClient<IChallongeClient, ChallongeClient>(client =>
 	client.BaseAddress = new Uri("https://api.challonge.com/v2.1/"));
 
+builder.Services.Configure<NexusOptions>(builder.Configuration.GetSection("Nexus"));
 builder.Services.AddHttpClient<INexusClient, NexusClient>(client =>
 {
 	client.BaseAddress = new Uri("https://nexus-shiyu.com/");

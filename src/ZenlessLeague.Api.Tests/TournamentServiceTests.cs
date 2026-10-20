@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
+using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
@@ -32,7 +34,8 @@ public class TournamentServiceTests
 			new FakeTournamentNotifier(),
 			new FakeNexusClient(),
 			new TournamentRegistrationRepository(context),
-			NullLogger<MatchService>.Instance);
+			NullLogger<MatchService>.Instance,
+			Options.Create(new NexusOptions()));
 
 		var notifier = new FakeTournamentNotifier();
 		var discord = new FakeDiscordClient();

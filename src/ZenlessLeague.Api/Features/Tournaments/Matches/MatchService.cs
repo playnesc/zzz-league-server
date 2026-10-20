@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Nexus;
@@ -46,8 +47,11 @@ public class MatchService(
 	ITournamentNotifier notifier,
 	INexusClient nexusClient,
 	ITournamentRegistrationRepository registrationRepository,
-	ILogger<MatchService> logger) : IMatchService
+	ILogger<MatchService> logger,
+	IOptions<NexusOptions> nexusOptions) : IMatchService
 {
+	private bool ParseNexusResults => nexusOptions.Value.ParseResults;
+
 	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
 	{
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
@@ -141,7 +145,14 @@ public class MatchService(
 		}
 		else
 		{
-			await ApplySoloNexusResultAsync(tournament, match, request, ct);
+			if (ParseNexusResults)
+			{
+				await ApplySoloNexusResultAsync(tournament, match, request, ct);
+			}
+			else
+			{
+				ApplySoloTypedResult(match, request);
+			}
 		}
 
 		if (callerIsP1)
@@ -252,13 +263,18 @@ public class MatchService(
 		}
 		else
 		{
-			if (request.NexusResultUrl is not null)
+			if (request.NexusResultUrl is not null && isTeamMatch)
 			{
-				if (isTeamMatch)
-				{
-					throw new MatchValidationException("Nexus result links are only supported for solo matches.");
-				}
+				throw new MatchValidationException("Nexus result links are only supported for solo matches.");
+			}
 
+			if (request.NexusResultUrl is not null && !ParseNexusResults)
+			{
+				// Stored as proof only (see ApplySoloTypedResult); the typed values are the result.
+				SetNexusResultId(match, ParseNexusLinkOrNull(request.NexusResultUrl));
+			}
+			else if (request.NexusResultUrl is not null)
+			{
 				var nexus = await LoadNexusResultAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
 				var (nexusP1, nexusP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
 				match.NexusResultId = nexus.ResultId;
@@ -487,6 +503,64 @@ public class MatchService(
 			match.NexusSnapshot = nexus.Json;
 			match.NexusP1IsLeft = nexus.P1IsLeft;
 		}
+	}
+
+	// Used while Nexus results can't be parsed (NexusOptions.ParseResults = false): typed result
+	// + the Nexus link as proof (shown as an embed instead of a screenshot). The link is only
+	// checked for shape, not fetched. Without a new link the stored one is kept. Any change to the
+	// result or the link resets both confirmations.
+	private static void ApplySoloTypedResult(TournamentMatch match, SubmitPlayerResultRequest request)
+	{
+		if (string.IsNullOrWhiteSpace(request.ResultP1) || string.IsNullOrWhiteSpace(request.ResultP2))
+		{
+			throw new MatchValidationException("resultP1 and resultP2 are required.");
+		}
+
+		var resultId = ParseNexusLinkOrNull(request.NexusResultUrl) ?? match.NexusResultId;
+		if (resultId is null && match.ResultScreenshotUrl is null)
+		{
+			throw new MatchValidationException("Paste the Nexus result link.");
+		}
+
+		var trimmedP1 = request.ResultP1.Trim();
+		var trimmedP2 = request.ResultP2.Trim();
+		var changed = trimmedP1 != match.ResultP1 ||
+			trimmedP2 != match.ResultP2 ||
+			resultId != match.NexusResultId;
+
+		if (changed)
+		{
+			match.P1ApprovedResult = false;
+			match.P2ApprovedResult = false;
+			match.ResultP1 = trimmedP1;
+			match.ResultP2 = trimmedP2;
+			SetNexusResultId(match, resultId);
+		}
+	}
+
+	private static string? ParseNexusLinkOrNull(string? url)
+	{
+		if (string.IsNullOrWhiteSpace(url))
+		{
+			return null;
+		}
+
+		return NexusLink.TryParseId(url, out var resultId)
+			? resultId
+			: throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
+	}
+
+	// A different link invalidates whatever was parsed from the old one.
+	private static void SetNexusResultId(TournamentMatch match, string? resultId)
+	{
+		if (resultId == match.NexusResultId)
+		{
+			return;
+		}
+
+		match.NexusResultId = resultId;
+		match.NexusSnapshot = null;
+		match.NexusP1IsLeft = null;
 	}
 
 	private sealed record LoadedNexusResult(string ResultId, string Json, NexusParsedResult Parsed, bool? P1IsLeft);
