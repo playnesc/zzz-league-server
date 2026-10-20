@@ -9,8 +9,11 @@ public interface ITournamentRepository
 
 	// Returns a tracked entity — callers may mutate it in place and call SaveChangesAsync.
 	Task<Tournament?> GetByIdAsync(Guid id, CancellationToken ct = default);
-	Task<List<Tournament>> ListAsync(CancellationToken ct = default);
+	Task<List<Tournament>> ListAsync(bool includeHidden, CancellationToken ct = default);
 	Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+
+	// Lightweight Visible lookup for HiddenTournamentFilter; null when the tournament doesn't exist.
+	Task<bool?> GetVisibilityAsync(Guid id, CancellationToken ct = default);
 
 	// Batch Id -> Name resolution for list-returning callers (e.g. history entries showing which
 	// tournament they belong to) — one query per list, not one per row.
@@ -31,8 +34,17 @@ public class TournamentRepository(AppDbContext context) : ITournamentRepository
 	public Task<Tournament?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
 		context.Tournaments.FirstOrDefaultAsync(t => t.Id == id, ct);
 
-	public Task<List<Tournament>> ListAsync(CancellationToken ct = default) =>
-		context.Tournaments.OrderBy(t => t.TournamentStartDate).ToListAsync(ct);
+	public Task<List<Tournament>> ListAsync(bool includeHidden, CancellationToken ct = default) =>
+		context.Tournaments
+			.Where(t => includeHidden || t.Visible)
+			.OrderBy(t => t.TournamentStartDate)
+			.ToListAsync(ct);
+
+	public Task<bool?> GetVisibilityAsync(Guid id, CancellationToken ct = default) =>
+		context.Tournaments.AsNoTracking()
+			.Where(t => t.Id == id)
+			.Select(t => (bool?)t.Visible)
+			.FirstOrDefaultAsync(ct);
 
 	public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
 	{

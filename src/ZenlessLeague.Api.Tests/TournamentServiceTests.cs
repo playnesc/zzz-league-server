@@ -295,4 +295,35 @@ public class TournamentServiceTests
 		Assert.Null(reloaded.DiscordRoleId);
 		Assert.Empty(notifier.TournamentChanged);
 	}
+
+	[Theory]
+	[InlineData(false, 1)]
+	[InlineData(true, 2)]
+	public async Task ListAsync_HiddenTournaments_OnlyIncludedWhenRequested(bool includeHidden, int expectedCount)
+	{
+		await using var context = CreateContext();
+		await SeedTournamentAsync(context);
+		var hidden = await SeedTournamentAsync(context);
+		hidden.Visible = false;
+		await context.SaveChangesAsync();
+		var (service, _, _, _, _) = CreateService(context);
+
+		var result = await service.ListAsync(includeHidden);
+
+		Assert.Equal(expectedCount, result.Count);
+		Assert.Equal(includeHidden, result.Any(t => t.Id == hidden.Id));
+	}
+
+	[Fact]
+	public async Task GetVisibilityAsync_ReturnsFlagOrNullWhenMissing()
+	{
+		await using var context = CreateContext();
+		var hidden = await SeedTournamentAsync(context);
+		hidden.Visible = false;
+		await context.SaveChangesAsync();
+		var repository = new TournamentRepository(context);
+
+		Assert.False(await repository.GetVisibilityAsync(hidden.Id));
+		Assert.Null(await repository.GetVisibilityAsync(Guid.NewGuid()));
+	}
 }

@@ -9,13 +9,14 @@ public static class MatchEndpoints
 		var group = app.MapGroup("/api/tournaments/{id:guid}/matches");
 
 		group.MapGet("/", async (Guid id, IMatchService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(id, ct)));
+			Results.Ok(await service.ListAsync(id, ct)))
+			.RequireVisibleTournament();
 
 		group.MapGet("/{matchId:guid}", async (Guid id, Guid matchId, IMatchService service, CancellationToken ct) =>
 		{
 			var match = await service.GetAsync(id, matchId, ct);
 			return match is null ? Results.NotFound() : Results.Ok(match);
-		});
+		}).RequireVisibleTournament();
 
 		group.MapPost("/{matchId:guid}/result", async (
 			Guid id, Guid matchId, SubmitPlayerResultRequest request, HttpContext http, IMatchService service, CancellationToken ct) =>

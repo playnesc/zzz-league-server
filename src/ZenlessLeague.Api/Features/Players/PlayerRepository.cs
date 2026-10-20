@@ -35,6 +35,13 @@ public class PlayerRepository(AppDbContext context) : IPlayerRepository
 		return query.OrderBy(p => p.Name).ToListAsync(ct);
 	}
 
+	public Task<List<Player>> ListByMinRoleAsync(PlayerRole minRole, CancellationToken ct = default) =>
+		context.Players.AsNoTracking()
+			.Where(p => p.Role >= minRole)
+			.OrderByDescending(p => p.Role)
+			.ThenBy(p => p.Name)
+			.ToListAsync(ct);
+
 	public async Task<Player> CreateAsync(Player player, CancellationToken ct = default)
 	{
 		context.Players.Add(player);

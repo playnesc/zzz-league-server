@@ -6,6 +6,9 @@ public record ClaimPlayerRequest(string ExistingName, string NewUid);
 
 public record UpdatePlayerRoleRequest(PlayerRole Role);
 
+// GET /api/players/staff (admin page) — moderators and admins only.
+public record StaffMemberDto(string Uid, string Name, string? Avatar, PlayerRole Role);
+
 public record UpdatePlayerNameRequest(string Name);
 
 public record UpdatePlayerAvatarRequest(string Avatar);

@@ -13,9 +13,9 @@ public class PlayerServiceTests
 	private static PlayerService CreateService(AppDbContext context) =>
 		new(new PlayerRepository(context), new TournamentRegistrationRepository(context));
 
-	private static async Task<Player> SeedPlayerAsync(AppDbContext context, string uid, string name)
+	private static async Task<Player> SeedPlayerAsync(AppDbContext context, string uid, string name, PlayerRole role = PlayerRole.Player)
 	{
-		var player = new Player { Uid = uid, Name = name, CreatedAt = DateTimeOffset.UtcNow };
+		var player = new Player { Uid = uid, Name = name, Role = role, CreatedAt = DateTimeOffset.UtcNow };
 		context.Players.Add(player);
 		await context.SaveChangesAsync();
 		return player;
@@ -105,5 +105,58 @@ public class PlayerServiceTests
 		var result = await service.ListAsync(["u1", "missing"]);
 
 		Assert.Equal(["Alice"], result.Select(p => p.Name));
+	}
+
+	[Fact]
+	public async Task ListStaffAsync_ReturnsModeratorsAndAdminsOnly_AdminsFirst()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Bob", PlayerRole.Moderator);
+		await SeedPlayerAsync(context, "u2", "Carl");
+		await SeedPlayerAsync(context, "u3", "Zed", PlayerRole.Admin);
+		await SeedPlayerAsync(context, "u4", "Alice", PlayerRole.Moderator);
+		var service = CreateService(context);
+
+		var result = await service.ListStaffAsync();
+
+		Assert.Equal(["Zed", "Alice", "Bob"], result.Select(p => p.Name));
+		Assert.Equal([PlayerRole.Admin, PlayerRole.Moderator, PlayerRole.Moderator], result.Select(p => p.Role));
+	}
+
+	[Fact]
+	public async Task UpdateRoleAsync_PromoteAndDemoteModerator_Updates()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Bob");
+		var service = CreateService(context);
+
+		var promoted = await service.UpdateRoleAsync("u1", new UpdatePlayerRoleRequest(PlayerRole.Moderator));
+		Assert.Equal(PlayerRole.Moderator, promoted!.Role);
+
+		var demoted = await service.UpdateRoleAsync("u1", new UpdatePlayerRoleRequest(PlayerRole.Player));
+		Assert.Equal(PlayerRole.Player, demoted!.Role);
+	}
+
+	[Fact]
+	public async Task UpdateRoleAsync_GrantAdmin_Throws()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Bob", PlayerRole.Moderator);
+		var service = CreateService(context);
+
+		await Assert.ThrowsAsync<PlayerValidationException>(() =>
+			service.UpdateRoleAsync("u1", new UpdatePlayerRoleRequest(PlayerRole.Admin)));
+	}
+
+	[Fact]
+	public async Task UpdateRoleAsync_TargetIsAdmin_Throws()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Zed", PlayerRole.Admin);
+		var service = CreateService(context);
+
+		await Assert.ThrowsAsync<PlayerValidationException>(() =>
+			service.UpdateRoleAsync("u1", new UpdatePlayerRoleRequest(PlayerRole.Player)));
+		Assert.Equal(PlayerRole.Admin, (await context.Players.SingleAsync()).Role);
 	}
 }

@@ -20,6 +20,11 @@ public static class PlayerEndpoints
 		group.MapGet("/", async (string? uids, IPlayerService service, CancellationToken ct) =>
 			Results.Ok(await service.ListAsync(uids?.Split(',', StringSplitOptions.RemoveEmptyEntries), ct)));
 
+		// Admin page's Roles section. Literal segment, so it wins over /{uid} below.
+		group.MapGet("/staff", async (IPlayerService service, CancellationToken ct) =>
+			Results.Ok(await service.ListStaffAsync(ct)))
+			.RequireAuthorization("Admin");
+
 		// Self-or-admin: the full PlayerDto includes LastRegistration (PrizeUid, roster/Hoyolab
 		// screenshot URLs) — not safe to expose for arbitrary other players.
 		group.MapGet("/{uid}", async (string uid, HttpContext http, IAuthorizationService authorization, IPlayerService service, CancellationToken ct) =>

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authorization;
+
 namespace ZenlessLeague.Api.Features.Tournaments;
 
 public static class TournamentEndpoints
@@ -12,14 +14,14 @@ public static class TournamentEndpoints
 			return Results.Created($"/api/tournaments/{tournament.Id}", tournament);
 		}).RequireAuthorization("Admin");
 
-		group.MapGet("/", async (ITournamentService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(ct)));
+		group.MapGet("/", async (HttpContext http, IAuthorizationService authorization, ITournamentService service, CancellationToken ct) =>
+			Results.Ok(await service.ListAsync(await TournamentVisibility.CanSeeHiddenAsync(http.User, authorization), ct)));
 
 		group.MapGet("/{id:guid}", async (Guid id, ITournamentService service, CancellationToken ct) =>
 		{
 			var tournament = await service.GetAsync(id, ct);
 			return tournament is null ? Results.NotFound() : Results.Ok(tournament);
-		});
+		}).RequireVisibleTournament();
 
 		group.MapPut("/{id:guid}", async (Guid id, UpdateTournamentRequest request, ITournamentService service, CancellationToken ct) =>
 		{

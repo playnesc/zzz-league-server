@@ -10,6 +10,9 @@ public interface IPlayerRepository
 	Task<Player?> GetByNameAsync(string name, CancellationToken ct = default);
 	Task<Player?> GetEntityByDiscordIdAsync(string discordId, CancellationToken ct = default);
 	Task<List<Player>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default);
+
+	// Staff roster for the admin page: every player at or above minRole, highest role first.
+	Task<List<Player>> ListByMinRoleAsync(PlayerRole minRole, CancellationToken ct = default);
 	Task<Player> CreateAsync(Player player, CancellationToken ct = default);
 	Task<bool> DeleteByUidAsync(string uid, CancellationToken ct = default);
 

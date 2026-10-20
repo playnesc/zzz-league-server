@@ -15,6 +15,7 @@ public interface IPlayerService
 	Task<bool> DeleteAsync(string uid, CancellationToken ct = default);
 	Task<PlayerDto> ClaimAsync(ClaimPlayerRequest request, CancellationToken ct = default);
 	Task<PlayerDto?> UpdateRoleAsync(string uid, UpdatePlayerRoleRequest request, CancellationToken ct = default);
+	Task<List<StaffMemberDto>> ListStaffAsync(CancellationToken ct = default);
 
 	Task<PlayerDto?> UpdateNameAsync(string uid, string name, CancellationToken ct = default);
 	Task<PlayerDto?> UpdateAvatarAsync(string uid, string avatar, CancellationToken ct = default);
@@ -87,10 +88,27 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 			return null;
 		}
 
+		// Only Player <-> Moderator is managed through the API; the Admin role is granted and
+		// revoked directly in the DB, so an admin can't be demoted (or demote themselves) here.
+		if (request.Role == PlayerRole.Admin)
+		{
+			throw new PlayerValidationException("The admin role can't be granted through the API.");
+		}
+
+		if (player.Role == PlayerRole.Admin)
+		{
+			throw new PlayerValidationException("An admin's role can't be changed through the API.");
+		}
+
 		player.Role = request.Role;
 		await playerRepository.SaveChangesAsync(ct);
 		return await BuildDtoAsync(player, ct);
 	}
+
+	public async Task<List<StaffMemberDto>> ListStaffAsync(CancellationToken ct = default) =>
+		(await playerRepository.ListByMinRoleAsync(PlayerRole.Moderator, ct))
+			.Select(p => new StaffMemberDto(p.Uid, p.Name, p.Avatar, p.Role))
+			.ToList();
 
 	public async Task<PlayerDto?> UpdateNameAsync(string uid, string name, CancellationToken ct = default)
 	{

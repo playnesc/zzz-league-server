@@ -22,7 +22,7 @@ public static class RegistrationEndpoints
 
 			var registration = await service.RegisterSoloAsync(id, request, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireVisibleTournament();
 
 		group.MapPost("/team", async (
 			Guid id, TeamRegistrationRequest request, HttpContext http, IAuthorizationService authorization,
@@ -43,20 +43,21 @@ public static class RegistrationEndpoints
 
 			var registration = await service.RegisterTeamAsync(id, request, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireVisibleTournament();
 
 		// Public — anonymous visitors can browse participants too. callerUid (from the token if any
 		// was sent; null for anonymous) is what ListAsync/GetAsync use to decide which
 		// registrations' sensitive fields (GameUid/PrizeUid/PrizeAsMoney) come through unredacted.
 		group.MapGet("/", async (Guid id, HttpContext http, ITournamentRegistrationService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(id, http.User.GetUid(), ct)));
+			Results.Ok(await service.ListAsync(id, http.User.GetUid(), ct)))
+			.RequireVisibleTournament();
 
 		group.MapGet("/{registrationId:guid}", async (
 			Guid id, Guid registrationId, HttpContext http, ITournamentRegistrationService service, CancellationToken ct) =>
 		{
 			var registration = await service.GetAsync(id, registrationId, http.User.GetUid(), ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		});
+		}).RequireVisibleTournament();
 
 		group.MapPost("/admin-add", async (
 			Guid id, AdminAddRegistrationRequest request, ITournamentRegistrationService service, CancellationToken ct) =>

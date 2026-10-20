@@ -8,7 +8,7 @@ public interface ITournamentService
 {
 	Task<TournamentDto> CreateAsync(CreateTournamentRequest request, CancellationToken ct = default);
 	Task<TournamentDto?> GetAsync(Guid id, CancellationToken ct = default);
-	Task<List<TournamentDto>> ListAsync(CancellationToken ct = default);
+	Task<List<TournamentDto>> ListAsync(bool includeHidden, CancellationToken ct = default);
 	Task<TournamentDto?> UpdateAsync(Guid id, UpdateTournamentRequest request, CancellationToken ct = default);
 	Task<TournamentDto?> CloseRegistrationAsync(Guid id, CancellationToken ct = default);
 }
@@ -57,8 +57,8 @@ public class TournamentService(
 		return tournament is null ? null : await ToDtoAsync(tournament, ct);
 	}
 
-	public async Task<List<TournamentDto>> ListAsync(CancellationToken ct = default) =>
-		await ToDtosAsync(await tournamentRepository.ListAsync(ct), ct);
+	public async Task<List<TournamentDto>> ListAsync(bool includeHidden, CancellationToken ct = default) =>
+		await ToDtosAsync(await tournamentRepository.ListAsync(includeHidden, ct), ct);
 
 	public async Task<TournamentDto?> UpdateAsync(Guid id, UpdateTournamentRequest request, CancellationToken ct = default)
 	{
