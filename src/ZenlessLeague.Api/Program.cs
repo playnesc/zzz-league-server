@@ -223,8 +223,8 @@ if (app.Environment.IsDevelopment())
 	app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
-
+// No UseHttpsRedirection: TLS terminates at Coolify's proxy, which already redirects http→https;
+// the container only listens on plain HTTP (see Dockerfile), so the middleware had no port to use.
 app.UseCors("Frontend");
 
 app.UseAuthentication();

@@ -54,7 +54,7 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 	public async Task<TeamDto?> GetAsync(Guid id, CancellationToken ct = default)
 	{
 		var team = await teamRepository.GetByIdAsync(id, ct);
-		return team is null ? null : await EnrichAsync(team, ct);
+		return team is null ? null : (await EnrichAsync([team], ct))[0];
 	}
 
 	public async Task<List<TeamDto>> ListByPlayerAsync(string uid, CancellationToken ct = default)
@@ -66,25 +66,13 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 		}
 
 		var teams = await teamRepository.ListByPlayerAsync(player.Id, ct);
-		var dtos = new List<TeamDto>(teams.Count);
-		foreach (var team in teams)
-		{
-			dtos.Add(await EnrichAsync(team, ct));
-		}
-
-		return dtos;
+		return await EnrichAsync(teams, ct);
 	}
 
 	public async Task<TeamPageDto> ListPageAsync(int take, DateTimeOffset? beforeCreatedAt, Guid? beforeId, CancellationToken ct = default)
 	{
 		var teams = await teamRepository.ListPageAsync(take, beforeCreatedAt, beforeId, ct);
-		var dtos = new List<TeamDto>(teams.Count);
-		foreach (var team in teams)
-		{
-			dtos.Add(await EnrichAsync(team, ct));
-		}
-
-		return new TeamPageDto(dtos, teams.Count == take);
+		return new TeamPageDto(await EnrichAsync(teams, ct), teams.Count == take);
 	}
 
 	public async Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default)
@@ -145,15 +133,18 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 	}
 
 	// Player1Id/Player2Id are real FKs into Players now, so these rows are guaranteed to
-	// exist — no "player vanished" fallback needed anymore.
-	private async Task<TeamDto> EnrichAsync(Team team, CancellationToken ct)
+	// exist — no "player vanished" fallback needed anymore. Resolves every team's players in a
+	// single query rather than two per team (the old per-row lookup made the teams page slow).
+	private async Task<List<TeamDto>> EnrichAsync(List<Team> teams, CancellationToken ct)
 	{
-		var creator = await playerRepository.GetByIdAsync(team.Player1Id, ct)
-			?? throw new InvalidOperationException($"Player '{team.Player1Id}' referenced by team '{team.Id}' is missing.");
-		var player2 = await playerRepository.GetByIdAsync(team.Player2Id, ct)
-			?? throw new InvalidOperationException($"Player '{team.Player2Id}' referenced by team '{team.Id}' is missing.");
+		var players = await playerRepository.GetSummariesByIdsAsync(
+			teams.SelectMany(t => new[] { t.Player1Id, t.Player2Id }), ct);
 
-		return ToDto(team, creator, player2);
+		PlayerSummary Resolve(Team team, Guid playerId) =>
+			players.GetValueOrDefault(playerId)
+				?? throw new InvalidOperationException($"Player '{playerId}' referenced by team '{team.Id}' is missing.");
+
+		return teams.Select(t => ToDto(t, Resolve(t, t.Player1Id), Resolve(t, t.Player2Id))).ToList();
 	}
 
 	private static PlayerSummary ToSummary(Player p) => new(p.Uid, p.Name, p.Avatar, p.IsMidConfirmed, p.IsHighConfirmed);

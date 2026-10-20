@@ -20,6 +20,10 @@ public interface IPlayerRepository
 	// Firebase uid strings the frontend expects — one query per list, not one per row.
 	Task<Dictionary<Guid, string>> GetUidsByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
 
+	// Batch Id -> PlayerSummary for list endpoints that embed player cards (e.g. teams) — same
+	// one-query-per-list rule as GetUidsByIdsAsync.
+	Task<Dictionary<Guid, PlayerSummary>> GetSummariesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+
 	// The reverse of the above — batch Uid -> Id resolution for request payloads that carry a
 	// list of Firebase uids (e.g. SplitTournamentRequest.DivisionGroups) needing translation to
 	// internal Guid FKs before comparison/lookup.

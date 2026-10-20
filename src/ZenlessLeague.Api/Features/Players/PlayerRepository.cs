@@ -75,6 +75,19 @@ public class PlayerRepository(AppDbContext context) : IPlayerRepository
 			.ToDictionaryAsync(p => p.Id, p => p.Uid, ct);
 	}
 
+	public async Task<Dictionary<Guid, PlayerSummary>> GetSummariesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+	{
+		var idList = ids.Distinct().ToList();
+		if (idList.Count == 0)
+		{
+			return [];
+		}
+
+		return await context.Players.AsNoTracking()
+			.Where(p => idList.Contains(p.Id))
+			.ToDictionaryAsync(p => p.Id, ToSummary, ct);
+	}
+
 	public async Task<Dictionary<string, Guid>> GetIdsByUidsAsync(IEnumerable<string> uids, CancellationToken ct = default)
 	{
 		var uidList = uids.Distinct().ToList();
