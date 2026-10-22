@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Storage;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.Teams;
 

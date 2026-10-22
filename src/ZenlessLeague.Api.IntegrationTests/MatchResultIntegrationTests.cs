@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
@@ -9,6 +8,7 @@ using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 using ZenlessLeague.Api.Tests;
 
 namespace ZenlessLeague.Api.IntegrationTests;
@@ -164,17 +164,14 @@ public class MatchResultIntegrationTests(PostgresFixture postgres)
 		}
 		return new MatchService(
 			new TournamentRepository(db),
-			new TournamentChallongeParticipantRepository(db),
 			new TournamentMatchRepository(db),
 			new TeamRepository(db),
 			playerRepository,
-			challonge,
+			new ChallongeMatchSync(new TournamentRepository(db), new TournamentChallongeParticipantRepository(db), new TournamentMatchRepository(db), challonge),
+			new NexusResultResolver(new FakeNexusClient(), new TournamentRegistrationRepository(db), playerRepository, NullLogger<NexusResultResolver>.Instance),
 			historyService,
 			new FakeFirebaseStorageClient(),
 			new FakeTournamentNotifier(),
-			new FakeNexusClient(),
-			new TournamentRegistrationRepository(db),
-			NullLogger<MatchService>.Instance,
 			Options.Create(new NexusOptions { ParseResults = false }),
 			new EfUnitOfWork(db));
 	}
@@ -203,10 +200,6 @@ public class MatchResultIntegrationTests(PostgresFixture postgres)
 		public Task<HistoryEntryDto> SetPlayerEloAsync(string uid, int elo, CancellationToken ct = default) => inner.SetPlayerEloAsync(uid, elo, ct);
 
 		public Task<EloPreviewDto> PreviewEloChangeAsync(string p1Uid, string p2Uid, CancellationToken ct = default) => inner.PreviewEloChangeAsync(p1Uid, p2Uid, ct);
-
-		public Task<List<HistoryEntryDto>> ListAsync(CancellationToken ct = default) => inner.ListAsync(ct);
-
-		public Task<List<HistoryEntryDto>> ListByPlayerAsync(string uid, CancellationToken ct = default) => inner.ListByPlayerAsync(uid, ct);
 
 		public Task<HistoryPageDto> ListPageAsync(int take, DateTimeOffset? beforeTimestamp, Guid? beforeId, CancellationToken ct = default) =>
 			inner.ListPageAsync(take, beforeTimestamp, beforeId, ct);

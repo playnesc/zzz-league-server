@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace ZenlessLeague.Api.Data.Authorization;
+namespace ZenlessLeague.Api.Infrastructure.Authorization;
 
 public static class AuthenticatedUserExtensions
 {

@@ -1,11 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Tests;
 

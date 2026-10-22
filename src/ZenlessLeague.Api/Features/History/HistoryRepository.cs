@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Features.History;
 
@@ -12,10 +12,9 @@ public interface IHistoryRepository
 
 	Task<HistoryEntry?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-	// Full, unpaginated lists — for internal server-side consumers only (BackfillLastPlayedTimestampsAsync
+	// Full, unpaginated list — for internal server-side consumers only (BackfillLastPlayedTimestampsAsync
 	// needs to scan every entry). The HTTP endpoints use the keyset-paginated methods below instead.
 	Task<List<HistoryEntry>> ListAsync(CancellationToken ct = default);
-	Task<List<HistoryEntry>> ListByPlayerAsync(Guid playerId, CancellationToken ct = default);
 
 	// Keyset ("seek") pagination ordered by Timestamp desc, Id desc as a tiebreaker for entries
 	// sharing the same timestamp (e.g. bulk season-finalize adjustments). Pass the last entry from
@@ -43,12 +42,6 @@ public class HistoryRepository(AppDbContext context) : IHistoryRepository
 
 	public Task<List<HistoryEntry>> ListAsync(CancellationToken ct = default) =>
 		context.HistoryEntries.OrderByDescending(h => h.Timestamp).ToListAsync(ct);
-
-	public Task<List<HistoryEntry>> ListByPlayerAsync(Guid playerId, CancellationToken ct = default) =>
-		context.HistoryEntries
-			.Where(h => h.P1PlayerId == playerId || h.P2PlayerId == playerId)
-			.OrderByDescending(h => h.Timestamp)
-			.ToListAsync(ct);
 
 	public async Task DeleteAsync(HistoryEntry entry, CancellationToken ct = default)
 	{

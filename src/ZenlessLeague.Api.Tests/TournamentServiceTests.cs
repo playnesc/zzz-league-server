@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
@@ -9,6 +8,7 @@ using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Tests;
 
@@ -24,17 +24,14 @@ public class TournamentServiceTests
 		var challonge = new FakeChallongeClient();
 		var matchService = new MatchService(
 			new TournamentRepository(context),
-			new TournamentChallongeParticipantRepository(context),
 			new TournamentMatchRepository(context),
 			new TeamRepository(context),
 			playerRepository,
-			challonge,
+			new ChallongeMatchSync(new TournamentRepository(context), new TournamentChallongeParticipantRepository(context), new TournamentMatchRepository(context), challonge),
+			new NexusResultResolver(new FakeNexusClient(), new TournamentRegistrationRepository(context), playerRepository, NullLogger<NexusResultResolver>.Instance),
 			historyService,
 			new FakeFirebaseStorageClient(),
 			new FakeTournamentNotifier(),
-			new FakeNexusClient(),
-			new TournamentRegistrationRepository(context),
-			NullLogger<MatchService>.Instance,
 			Options.Create(new NexusOptions()),
 			new EfUnitOfWork(context));
 

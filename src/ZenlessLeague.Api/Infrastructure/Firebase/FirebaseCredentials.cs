@@ -1,4 +1,4 @@
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Firebase;
 
 // Firebase service-account credentials can come from either a file on disk (local dev --
 // Firebase:CredentialsPath, a plain relative path to a gitignored file) or the raw JSON directly

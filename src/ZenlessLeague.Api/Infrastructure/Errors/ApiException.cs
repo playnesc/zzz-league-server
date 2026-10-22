@@ -1,4 +1,4 @@
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Errors;
 
 // Common ancestor for every feature's domain exception (HistoryValidationException,
 // MatchForbiddenException, etc.) so ApiExceptionHandler can map all of them to an HTTP

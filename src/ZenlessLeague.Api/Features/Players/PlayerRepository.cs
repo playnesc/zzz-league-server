@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Features.Players;
 

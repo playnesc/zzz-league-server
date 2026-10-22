@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
-using ZenlessLeague.Api.Data.Authorization;
+using ZenlessLeague.Api.Infrastructure.Authorization;
 
 namespace ZenlessLeague.Api.Features.Players;
 

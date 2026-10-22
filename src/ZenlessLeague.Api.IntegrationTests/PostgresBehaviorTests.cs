@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using IMigrator = Microsoft.EntityFrameworkCore.Migrations.IMigrator;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
@@ -12,6 +11,8 @@ using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
+using ZenlessLeague.Api.Infrastructure.Errors;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 using ZenlessLeague.Api.Tests;
 
 namespace ZenlessLeague.Api.IntegrationTests;

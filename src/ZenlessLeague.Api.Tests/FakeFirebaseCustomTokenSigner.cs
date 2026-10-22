@@ -1,4 +1,5 @@
-using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Infrastructure.Firebase;
+
 
 namespace ZenlessLeague.Api.Tests;
 

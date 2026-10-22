@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
-namespace ZenlessLeague.Api.Data.Authorization;
+namespace ZenlessLeague.Api.Infrastructure.Authorization;
 
 // Ports functions/utils/roles.js's ROLE_RANK/hasRole check: role lives on the player row and
 // is read fresh on every request, not baked into the JWT — so a role change (promote/demote)

@@ -1,6 +1,6 @@
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.Tournaments;
 

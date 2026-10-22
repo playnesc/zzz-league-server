@@ -1,8 +1,8 @@
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.History;
 
@@ -37,9 +37,6 @@ public interface IHistoryService
 	// what RegisterMatchResultAsync would produce for either outcome (no override, no tech loss),
 	// without persisting anything.
 	Task<EloPreviewDto> PreviewEloChangeAsync(string p1Uid, string p2Uid, CancellationToken ct = default);
-
-	Task<List<HistoryEntryDto>> ListAsync(CancellationToken ct = default);
-	Task<List<HistoryEntryDto>> ListByPlayerAsync(string uid, CancellationToken ct = default);
 
 	Task<HistoryPageDto> ListPageAsync(int take, DateTimeOffset? beforeTimestamp, Guid? beforeId, CancellationToken ct = default);
 	Task<HistoryPageDto> ListPageByPlayerAsync(string uid, int take, DateTimeOffset? beforeTimestamp, Guid? beforeId, CancellationToken ct = default);
@@ -284,20 +281,6 @@ public class HistoryService(
 		var (p1ChangeOnLoss, p2ChangeOnWin) = CalculateChanges(r1, r2, p1Win: false, overrideEloChange: -1, techLoss: false);
 
 		return new EloPreviewDto(p1ChangeOnWin, p1ChangeOnLoss, p2ChangeOnWin, p2ChangeOnLoss);
-	}
-
-	public async Task<List<HistoryEntryDto>> ListAsync(CancellationToken ct = default) =>
-		await ToDtosAsync(await historyRepository.ListAsync(ct), ct);
-
-	public async Task<List<HistoryEntryDto>> ListByPlayerAsync(string uid, CancellationToken ct = default)
-	{
-		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
-		if (player is null)
-		{
-			return [];
-		}
-
-		return await ToDtosAsync(await historyRepository.ListByPlayerAsync(player.Id, ct), ct);
 	}
 
 	public async Task<HistoryPageDto> ListPageAsync(int take, DateTimeOffset? beforeTimestamp, Guid? beforeId, CancellationToken ct = default)

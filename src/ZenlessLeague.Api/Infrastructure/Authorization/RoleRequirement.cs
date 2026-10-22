@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Features.Players;
 
-namespace ZenlessLeague.Api.Data.Authorization;
+namespace ZenlessLeague.Api.Infrastructure.Authorization;
 
 public class RoleRequirement(PlayerRole minRole) : IAuthorizationRequirement
 {

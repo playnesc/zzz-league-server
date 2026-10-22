@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.Storage;
 

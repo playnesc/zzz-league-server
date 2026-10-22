@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using ZenlessLeague.Api.Data.Authorization;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Infrastructure.Authorization;
 
 namespace ZenlessLeague.Api.Features.Auth;
 

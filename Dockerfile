@@ -1,5 +1,5 @@
 # Multi-stage build: SDK image compiles/publishes, runtime image (much smaller, no build tools)
-# actually runs. Only ZenlessLeague.Api is containerized -- Migrator/Tests aren't part of the
+# actually runs. Only ZenlessLeague.Api is containerized -- the test projects aren't part of the
 # runtime image.
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src

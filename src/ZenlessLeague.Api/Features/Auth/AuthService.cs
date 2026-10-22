@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Infrastructure.Firebase;
 
 namespace ZenlessLeague.Api.Features.Auth;
 

@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Persistence;
 
 public interface IUnitOfWork
 {

@@ -2,7 +2,7 @@ using System.Net;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
 
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Http;
 
 // Shared retry/timeout policy for the third-party typed HttpClients (Discord, Challonge, Firebase
 // Storage), on top of Microsoft.Extensions.Http.Resilience's standard pipeline: retries transient

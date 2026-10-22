@@ -10,7 +10,7 @@ using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Persistence;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {

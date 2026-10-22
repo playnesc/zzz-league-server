@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Tests;
 

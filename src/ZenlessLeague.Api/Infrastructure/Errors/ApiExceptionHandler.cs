@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Errors;
 
 // Replaces the try/catch blocks that used to be repeated in every endpoint file. Known domain
 // exceptions (ApiException and its subclasses) map to their declared status code with their own

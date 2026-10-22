@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Tests;
 
@@ -93,7 +93,7 @@ public class HistoryServiceTests
 		Assert.Equal(0, p1Reloaded.Wins);
 		Assert.Equal(0, p2Reloaded.TournamentPoints);
 		Assert.Equal(0, p2Reloaded.Losses);
-		Assert.Empty(await service.ListAsync());
+		Assert.Empty(await context.HistoryEntries.ToListAsync());
 	}
 
 	[Fact]
@@ -169,7 +169,7 @@ public class HistoryServiceTests
 		Assert.False(p1.IsMidConfirmed);
 		// An adjustment never touched the win/loss record, so undoing it mustn't either.
 		Assert.Equal((0, 0), (p1.Wins, p1.Losses));
-		Assert.Empty(await service.ListAsync());
+		Assert.Empty(await context.HistoryEntries.ToListAsync());
 	}
 
 	[Fact]

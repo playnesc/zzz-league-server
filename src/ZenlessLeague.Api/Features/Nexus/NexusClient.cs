@@ -1,5 +1,5 @@
 using System.Net;
-using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.Nexus;
 

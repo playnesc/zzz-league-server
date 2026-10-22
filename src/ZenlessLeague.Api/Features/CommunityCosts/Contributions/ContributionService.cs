@@ -1,7 +1,7 @@
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.CommunityCosts.Agents;
 using ZenlessLeague.Api.Features.CommunityCosts.Engines;
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.CommunityCosts.Contributions;
 

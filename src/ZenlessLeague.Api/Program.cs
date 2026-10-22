@@ -5,8 +5,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using ZenlessLeague.Api.Data;
-using ZenlessLeague.Api.Data.Authorization;
 using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.CommunityCosts.Agents;
 using ZenlessLeague.Api.Features.CommunityCosts.Contributions;
@@ -22,6 +20,11 @@ using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
+using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Errors;
+using ZenlessLeague.Api.Infrastructure.Firebase;
+using ZenlessLeague.Api.Infrastructure.Http;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -163,6 +166,8 @@ builder.Services.AddHttpClient<INexusClient, NexusClient>(client =>
 
 builder.Services.AddScoped<ITournamentChallongeParticipantRepository, TournamentChallongeParticipantRepository>();
 builder.Services.AddScoped<ITournamentMatchRepository, TournamentMatchRepository>();
+builder.Services.AddScoped<ChallongeMatchSync>();
+builder.Services.AddScoped<NexusResultResolver>();
 builder.Services.AddScoped<IMatchService, MatchService>();
 
 builder.Services.AddSignalR();

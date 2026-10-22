@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.CommunityCosts.Catalog;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Features.CommunityCosts.Agents;
 

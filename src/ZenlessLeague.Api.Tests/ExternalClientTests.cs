@@ -3,9 +3,9 @@ using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Tournaments.Challonge;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Tests;
 

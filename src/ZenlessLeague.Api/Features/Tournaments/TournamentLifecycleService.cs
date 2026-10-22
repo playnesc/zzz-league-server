@@ -1,4 +1,3 @@
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
@@ -6,6 +5,8 @@ using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
+using ZenlessLeague.Api.Infrastructure.Errors;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Features.Tournaments;
 

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
-using ZenlessLeague.Api.Data.Authorization;
 using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Infrastructure.Authorization;
 
 namespace ZenlessLeague.Api.Features.Tournaments;
 

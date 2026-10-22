@@ -1,6 +1,6 @@
 using System.Globalization;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.CommunityCosts.Catalog;
+using ZenlessLeague.Api.Infrastructure.Errors;
 
 namespace ZenlessLeague.Api.Features.CommunityCosts.Engines;
 

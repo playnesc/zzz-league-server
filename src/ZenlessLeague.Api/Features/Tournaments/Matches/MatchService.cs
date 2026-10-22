@@ -1,12 +1,12 @@
 using Microsoft.Extensions.Options;
-using ZenlessLeague.Api.Data;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Storage;
 using ZenlessLeague.Api.Features.Teams;
-using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
+using ZenlessLeague.Api.Infrastructure.Errors;
+using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
@@ -35,19 +35,19 @@ public class MatchValidationException(string message) : ValidationApiException(m
 /// <summary>Thrown when the caller isn't a participant of the match they're trying to act on — maps to 403.</summary>
 public class MatchForbiddenException(string message) : ForbiddenApiException(message);
 
+// Result submission for tournament matches: players' own submissions and confirmations, and the
+// moderator override. The Challonge round-trip lives in ChallongeMatchSync, Nexus link handling in
+// NexusResultResolver.
 public class MatchService(
 	ITournamentRepository tournamentRepository,
-	ITournamentChallongeParticipantRepository challongeParticipantRepository,
 	ITournamentMatchRepository matchRepository,
 	ITeamRepository teamRepository,
 	IPlayerRepository playerRepository,
-	IChallongeClient challongeClient,
+	ChallongeMatchSync challongeSync,
+	NexusResultResolver nexusResolver,
 	IHistoryService historyService,
 	IFirebaseStorageClient storageClient,
 	ITournamentNotifier notifier,
-	INexusClient nexusClient,
-	ITournamentRegistrationRepository registrationRepository,
-	ILogger<MatchService> logger,
 	IOptions<NexusOptions> nexusOptions,
 	IUnitOfWork unitOfWork) : IMatchService
 {
@@ -55,69 +55,8 @@ public class MatchService(
 
 	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
 	{
-		var tournamentChanged = await ApplyChallongeSyncAsync(tournamentId, ct);
+		var tournamentChanged = await challongeSync.SyncAsync(tournamentId, ct);
 		await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
-	}
-
-	// The sync itself, without notifying — so a caller running it inside a transaction can notify
-	// only once that has committed. Returns whether the tournament's own state changed.
-	private async Task<bool> ApplyChallongeSyncAsync(Guid tournamentId, CancellationToken ct)
-	{
-		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
-			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
-		if (tournament.ChallongeTournamentId is null)
-		{
-			throw new MatchValidationException("Tournament has no Challonge bracket yet.");
-		}
-
-		var participants = await challongeParticipantRepository.ListByTournamentAsync(tournamentId, ct);
-		// Exactly one of these is populated per participant, depending on Tournament.RegistrationType
-		// (see TournamentChallongeParticipant) — both dictionaries are built unconditionally since
-		// resolving against the "wrong" one for this tournament's type is always a harmless miss.
-		var challongeToPlayerId = participants.Where(p => p.PlayerId is not null).ToDictionary(p => p.ChallongeParticipantId, p => p.PlayerId!.Value);
-		var challongeToTeamId = participants.Where(p => p.TeamId is not null).ToDictionary(p => p.ChallongeParticipantId, p => p.TeamId!.Value);
-
-		var matches = await challongeClient.GetMatchesAsync(tournament.ChallongeTournamentId, ct);
-		var resetChallongeMatchId = ResolveResetChallongeMatchId(tournament.BracketType, matches);
-
-		var allMatchesPlayed = true;
-
-		foreach (var m in matches)
-		{
-			var challongeMatchId = long.Parse(m.ChallongeMatchId);
-
-			if (challongeMatchId == resetChallongeMatchId)
-			{
-				var placeholder = await matchRepository.GetByChallongeMatchIdAsync(tournamentId, challongeMatchId, ct);
-				if (placeholder is not null)
-				{
-					await matchRepository.RemoveAsync(placeholder, ct);
-				}
-
-				continue;
-			}
-
-			var hasWinner = await UpsertMatchFromChallongeAsync(
-				tournamentId, challongeMatchId, m, challongeToPlayerId, challongeToTeamId, ct);
-			if (!hasWinner)
-			{
-				allMatchesPlayed = false;
-			}
-		}
-
-		await matchRepository.SaveChangesAsync(ct);
-
-		// Only ever Started -> AwaitingReview. A resync of a finished tournament (refresh-games, or
-		// an admin correcting a result after Finish) must not knock Complete back to AwaitingReview,
-		// which would let Finish run — and award prize Elo/played counts — a second time.
-		if (allMatchesPlayed && tournament.State == TournamentState.Started)
-		{
-			tournament.State = TournamentState.AwaitingReview;
-			await tournamentRepository.SaveChangesAsync(ct);
-			return true;
-		}
-
-		return false;
 	}
 
 	private async Task NotifySyncedAsync(Guid tournamentId, bool tournamentChanged, CancellationToken ct)
@@ -189,7 +128,7 @@ public class MatchService(
 		if (match.P1ApprovedResult && match.P2ApprovedResult)
 		{
 			var p1Win = IsP1Win(tournament.GameMode, match.ResultP1!, match.ResultP2!);
-			await ReportToChallongeAsync(tournament, match, p1Win, "0", ct);
+			await challongeSync.ReportResultAsync(tournament, match, p1Win, "0", ct);
 			var tournamentChanged = await RecordResultAsync(
 				tournament, match, p1Win, match.ResultP1, match.ResultP2, techLoss: false, beforeRecording: null, ct);
 			await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
@@ -226,8 +165,8 @@ public class MatchService(
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
 			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
 
-		var nexus = await LoadNexusResultAsync(tournament, match, request.Url, request.NexusP1Side, ct);
-		var (resultP1, resultP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+		var nexus = await nexusResolver.LoadAsync(tournament, match, request.Url, request.NexusP1Side, ct);
+		var (resultP1, resultP2) = NexusResultResolver.MapTotals(nexus.Parsed, nexus.P1IsLeft);
 		return new NexusPreviewDto(
 			nexus.ResultId, nexus.Parsed.LeftName, nexus.Parsed.RightName, nexus.P1IsLeft,
 			nexus.Parsed.LeftTotal, nexus.Parsed.RightTotal, resultP1, resultP2,
@@ -290,12 +229,12 @@ public class MatchService(
 			if (request.NexusResultUrl is not null && !ParseNexusResults)
 			{
 				// Stored as proof only (see ApplySoloTypedResult); the typed values are the result.
-				SetNexusResultId(match, ParseNexusLinkOrNull(request.NexusResultUrl));
+				SetNexusResultId(match, NexusResultResolver.ParseLinkOrNull(request.NexusResultUrl));
 			}
 			else if (request.NexusResultUrl is not null)
 			{
-				var nexus = await LoadNexusResultAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
-				var (nexusP1, nexusP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+				var nexus = await nexusResolver.LoadAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
+				var (nexusP1, nexusP2) = NexusResultResolver.MapTotals(nexus.Parsed, nexus.P1IsLeft);
 				match.NexusResultId = nexus.ResultId;
 				match.NexusSnapshot = nexus.Json;
 				match.NexusP1IsLeft = nexus.P1IsLeft;
@@ -335,7 +274,7 @@ public class MatchService(
 			: null;
 		var resultScreenshotUrl = uploadedScreenshotUrl ?? match.ResultScreenshotUrl;
 
-		await ReportToChallongeAsync(tournament, match, p1Win, techLoss ? "999" : "0", ct);
+		await challongeSync.ReportResultAsync(tournament, match, p1Win, techLoss ? "999" : "0", ct);
 
 		// Undoing the previous result (if any) is part of the same transaction as recording the new
 		// one, so a failure can't leave the match with its old result reversed but no new one applied.
@@ -378,51 +317,12 @@ public class MatchService(
 	}
 
 	// Finalizing a result is two steps, shared by player confirmation and the admin override:
-	//  1. ReportToChallongeAsync — the external, non-transactional part. Re-reporting the same score
-	//     is harmless, so if step 2 then fails the whole thing can simply be retried.
+	//  1. ChallongeMatchSync.ReportResultAsync — the external, non-transactional part. Re-reporting
+	//     the same score is harmless, so if step 2 then fails the whole thing can simply be retried.
 	//  2. RecordResultAsync — every database write (resync, Elo/history, the match itself) in ONE
 	//     transaction: either the result is fully recorded or nothing changed and the match is still
 	//     unfinalized and retryable. Notifications are the caller's job, after this has committed.
-	private async Task ReportToChallongeAsync(Tournament tournament, TournamentMatch match, bool p1Win, string loserScore, CancellationToken ct)
-	{
-		if (tournament.ChallongeTournamentId is null)
-		{
-			throw new MatchValidationException("Tournament has no Challonge bracket yet.");
-		}
-
-		// Only 2 rows are actually needed here (unlike SyncFromChallongeAsync, which legitimately
-		// resolves every match against every participant) — targeted lookups instead of loading
-		// the whole tournament's participant table just to find these two.
-		string p1ChallongeId, p2ChallongeId;
-		if (match.P1TeamId is Guid p1TeamId && match.P2TeamId is Guid p2TeamId)
-		{
-			var p1Participant = await challongeParticipantRepository.FindAsync(tournament.Id, null, p1TeamId, ct);
-			var p2Participant = await challongeParticipantRepository.FindAsync(tournament.Id, null, p2TeamId, ct);
-			if (p1Participant is null || p2Participant is null)
-			{
-				throw new MatchValidationException("Match participants are not registered as Challonge participants.");
-			}
-
-			p1ChallongeId = p1Participant.ChallongeParticipantId;
-			p2ChallongeId = p2Participant.ChallongeParticipantId;
-		}
-		else
-		{
-			var p1Participant = await challongeParticipantRepository.FindAsync(tournament.Id, match.P1PlayerId!.Value, null, ct);
-			var p2Participant = await challongeParticipantRepository.FindAsync(tournament.Id, match.P2PlayerId!.Value, null, ct);
-			if (p1Participant is null || p2Participant is null)
-			{
-				throw new MatchValidationException("Match participants are not registered as Challonge participants.");
-			}
-
-			p1ChallongeId = p1Participant.ChallongeParticipantId;
-			p2ChallongeId = p2Participant.ChallongeParticipantId;
-		}
-
-		await challongeClient.UpdateMatchResultAsync(
-			tournament.ChallongeTournamentId, match.ChallongeMatchId.ToString(), p1ChallongeId, p2ChallongeId, p1Win, loserScore, ct);
-	}
-
+	//
 	// Returns whether the tournament's own state changed (for the caller's post-commit notify).
 	// `beforeRecording` runs first inside the same transaction (the admin path reverses the previous
 	// result there). Branches on match.P1TeamId/P2TeamId (set XOR with P1PlayerId/P2PlayerId): a team
@@ -437,7 +337,7 @@ public class MatchService(
 				await beforeRecording();
 			}
 
-			var tournamentChanged = await ApplyChallongeSyncAsync(tournament.Id, ct);
+			var tournamentChanged = await challongeSync.SyncAsync(tournament.Id, ct);
 
 			// Tagged so history shows "tech loss" instead of whatever result was typed before it.
 			var kind = techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.None;
@@ -517,7 +417,7 @@ public class MatchService(
 			return;
 		}
 
-		var nexus = await LoadNexusResultAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
+		var nexus = await nexusResolver.LoadAsync(tournament, match, request.NexusResultUrl, request.NexusP1Side, ct);
 		if (nexus.P1IsLeft is null)
 		{
 			throw new MatchValidationException("Couldn't match the Nexus player names — choose which side is yours.");
@@ -533,7 +433,7 @@ public class MatchService(
 			throw new MatchValidationException("This Nexus result is a tie — ask a moderator to set the result.");
 		}
 
-		var (resultP1, resultP2) = MapTotals(nexus.Parsed, nexus.P1IsLeft);
+		var (resultP1, resultP2) = NexusResultResolver.MapTotals(nexus.Parsed, nexus.P1IsLeft);
 		var changed = nexus.ResultId != match.NexusResultId ||
 			nexus.P1IsLeft != match.NexusP1IsLeft ||
 			resultP1 != match.ResultP1 ||
@@ -562,7 +462,7 @@ public class MatchService(
 			throw new MatchValidationException("resultP1 and resultP2 are required.");
 		}
 
-		var resultId = ParseNexusLinkOrNull(request.NexusResultUrl) ?? match.NexusResultId;
+		var resultId = NexusResultResolver.ParseLinkOrNull(request.NexusResultUrl) ?? match.NexusResultId;
 		if (resultId is null && match.ResultScreenshotUrl is null)
 		{
 			throw new MatchValidationException("Paste the Nexus result link.");
@@ -584,18 +484,6 @@ public class MatchService(
 		}
 	}
 
-	private static string? ParseNexusLinkOrNull(string? url)
-	{
-		if (string.IsNullOrWhiteSpace(url))
-		{
-			return null;
-		}
-
-		return NexusLink.TryParseId(url, out var resultId)
-			? resultId
-			: throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
-	}
-
 	// A different link invalidates whatever was parsed from the old one.
 	private static void SetNexusResultId(TournamentMatch match, string? resultId)
 	{
@@ -609,86 +497,6 @@ public class MatchService(
 		match.NexusP1IsLeft = null;
 	}
 
-	private sealed record LoadedNexusResult(string ResultId, string Json, NexusParsedResult Parsed, bool? P1IsLeft);
-
-	// Fetches + parses a pasted Nexus link and works out which Nexus side is P1: an explicit
-	// "left"/"right" from the caller wins, otherwise the names on Nexus are matched against the two
-	// players. P1IsLeft stays null when neither applies.
-	private async Task<LoadedNexusResult> LoadNexusResultAsync(Tournament tournament, TournamentMatch match, string url, string? p1Side, CancellationToken ct)
-	{
-		if (!NexusLink.TryParseId(url, out var resultId))
-		{
-			throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
-		}
-
-		if (match.P1PlayerId is not Guid p1Id || match.P2PlayerId is not Guid p2Id)
-		{
-			throw new MatchValidationException("Match does not have two known participants yet.");
-		}
-
-		var json = await nexusClient.GetResultJsonAsync(resultId, ct);
-		NexusParsedResult parsed;
-		try
-		{
-			parsed = NexusResultParser.Parse(json, tournament.GameMode);
-		}
-		catch (NexusFormatException ex)
-		{
-			// Nexus's API is undocumented and changes often — the raw response is what an admin
-			// needs to update NexusResultParser (Coolify → API app → Logs).
-			logger.LogError(ex, "Couldn't parse Nexus result {ResultId}; Nexus may have changed its format. Response: {Response}",
-				resultId, json.Length > 8000 ? json[..8000] + "…" : json);
-			throw;
-		}
-
-		var p1IsLeft = p1Side?.Trim().ToLowerInvariant() switch
-		{
-			"left" => true,
-			"right" => false,
-			null or "" => await MatchNexusSidesAsync(tournament.Id, p1Id, p2Id, parsed, ct),
-			_ => throw new MatchValidationException("nexusP1Side must be \"left\" or \"right\"."),
-		};
-
-		return new LoadedNexusResult(resultId, json, parsed, p1IsLeft);
-	}
-
-	private static (string? ResultP1, string? ResultP2) MapTotals(NexusParsedResult parsed, bool? p1IsLeft) => p1IsLeft switch
-	{
-		true => (parsed.LeftTotal, parsed.RightTotal),
-		false => (parsed.RightTotal, parsed.LeftTotal),
-		null => (null, null),
-	};
-
-	// A player is recognized by their Nexus nickname from this tournament's registration (the
-	// "DarteNickname" field), or failing that their site name / Discord username — case- and
-	// whitespace-insensitive. One recognized player is enough to place both; contradictory matches
-	// (e.g. both players look like "left") leave the sides unknown.
-	private async Task<bool?> MatchNexusSidesAsync(Guid tournamentId, Guid p1Id, Guid p2Id, NexusParsedResult parsed, CancellationToken ct)
-	{
-		var p1Names = await GetKnownNexusNamesAsync(tournamentId, p1Id, ct);
-		var p2Names = await GetKnownNexusNamesAsync(tournamentId, p2Id, ct);
-		var left = NormalizeName(parsed.LeftName);
-		var right = NormalizeName(parsed.RightName);
-
-		var saysP1IsLeft = p1Names.Contains(left) || p2Names.Contains(right);
-		var saysP1IsRight = p1Names.Contains(right) || p2Names.Contains(left);
-
-		return saysP1IsLeft == saysP1IsRight ? null : saysP1IsLeft;
-	}
-
-	private async Task<HashSet<string>> GetKnownNexusNamesAsync(Guid tournamentId, Guid playerId, CancellationToken ct)
-	{
-		var registration = await registrationRepository.FindExistingAsync(tournamentId, playerId, null, ct);
-		var player = await playerRepository.GetEntityByIdAsync(playerId, ct);
-
-		return new[] { registration?.Player1Details.DarteNickname, player?.Name, player?.DiscordUsername }
-			.Where(name => !string.IsNullOrWhiteSpace(name))
-			.Select(name => NormalizeName(name!))
-			.ToHashSet();
-	}
-
-	private static string NormalizeName(string name) => name.Trim().ToLowerInvariant();
-
 	private async Task<bool> IsTeamMemberAsync(Guid? teamId, Guid playerId, CancellationToken ct)
 	{
 		if (teamId is null)
@@ -699,78 +507,6 @@ public class MatchService(
 		var team = await teamRepository.GetByIdAsync(teamId.Value, ct);
 		return team is not null && (team.Player1Id == playerId || team.Player2Id == playerId);
 	}
-
-	// Double-elimination brackets carry a "grand finals reset" placeholder match for the case where
-	// the loser's-bracket finalist wins the first grand-finals game — Challonge always creates it,
-	// but it only actually gets played if that upset happens. Until then it's a dangling match with
-	// no real participants, so it's identified here and skipped/removed rather than synced as real.
-	private static long? ResolveResetChallongeMatchId(string? bracketType, List<ChallongeMatchResult> matches)
-	{
-		if (bracketType != "double elimination" || matches.Count == 0)
-		{
-			return null;
-		}
-
-		var maxRound = matches.Max(m => m.Round);
-		var finalRoundMatches = matches
-			.Where(m => m.Round == maxRound)
-			.OrderBy(m => m.SuggestedPlayOrder)
-			.ToList();
-
-		return finalRoundMatches.Count > 1 ? long.Parse(finalRoundMatches[^1].ChallongeMatchId) : null;
-	}
-
-	// Creates or updates the local TournamentMatch row for one Challonge match. Only the
-	// Challonge-sourced fields are ever written here — result/approval/history fields belong to
-	// SubmitPlayerResultAsync/SetAdminResultAsync, not this sync. Returns whether the match has a
-	// winner yet (used by the caller to decide whether the whole tournament is done syncing).
-	private async Task<bool> UpsertMatchFromChallongeAsync(
-		Guid tournamentId, long challongeMatchId, ChallongeMatchResult m,
-		Dictionary<string, Guid> challongeToPlayerId, Dictionary<string, Guid> challongeToTeamId, CancellationToken ct)
-	{
-		var winnerPlayerId = ResolvePlayerId(m.WinnerChallongeParticipantId, challongeToPlayerId);
-		var p1PlayerId = ResolvePlayerId(m.P1ChallongeParticipantId, challongeToPlayerId);
-		var p2PlayerId = ResolvePlayerId(m.P2ChallongeParticipantId, challongeToPlayerId);
-		var winnerTeamId = ResolveTeamId(m.WinnerChallongeParticipantId, challongeToTeamId);
-		var p1TeamId = ResolveTeamId(m.P1ChallongeParticipantId, challongeToTeamId);
-		var p2TeamId = ResolveTeamId(m.P2ChallongeParticipantId, challongeToTeamId);
-
-		var existing = await matchRepository.GetByChallongeMatchIdAsync(tournamentId, challongeMatchId, ct);
-		if (existing is null)
-		{
-			await matchRepository.CreateAsync(new TournamentMatch
-			{
-				Id = Guid.NewGuid(),
-				TournamentId = tournamentId,
-				ChallongeMatchId = challongeMatchId,
-				State = m.State,
-				WinnerPlayerId = winnerPlayerId,
-				WinnerTeamId = winnerTeamId,
-				P1PlayerId = p1PlayerId,
-				P2PlayerId = p2PlayerId,
-				P1TeamId = p1TeamId,
-				P2TeamId = p2TeamId,
-			}, ct);
-		}
-		else
-		{
-			existing.State = m.State;
-			existing.WinnerPlayerId = winnerPlayerId;
-			existing.WinnerTeamId = winnerTeamId;
-			existing.P1PlayerId = p1PlayerId;
-			existing.P2PlayerId = p2PlayerId;
-			existing.P1TeamId = p1TeamId;
-			existing.P2TeamId = p2TeamId;
-		}
-
-		return winnerPlayerId is not null || winnerTeamId is not null;
-	}
-
-	private static Guid? ResolvePlayerId(string? challongeParticipantId, Dictionary<string, Guid> challongeToPlayerId) =>
-		challongeParticipantId is not null && challongeToPlayerId.TryGetValue(challongeParticipantId, out var playerId) ? playerId : null;
-
-	private static Guid? ResolveTeamId(string? challongeParticipantId, Dictionary<string, Guid> challongeToTeamId) =>
-		challongeParticipantId is not null && challongeToTeamId.TryGetValue(challongeParticipantId, out var teamId) ? teamId : null;
 
 	private static bool IsP1Win(TournamentGameMode mode, string resultP1, string resultP2)
 	{

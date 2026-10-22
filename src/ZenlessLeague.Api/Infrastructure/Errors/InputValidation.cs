@@ -1,4 +1,4 @@
-namespace ZenlessLeague.Api.Data;
+namespace ZenlessLeague.Api.Infrastructure.Errors;
 
 // Boundary checks for free-text request fields, so blank or over-long input is a clear 400 instead
 // of reaching the database (where it either gets stored as-is or trips a column length limit as an
