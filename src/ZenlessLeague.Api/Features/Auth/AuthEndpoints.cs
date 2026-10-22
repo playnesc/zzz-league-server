@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Features.Auth;
 
@@ -20,7 +21,7 @@ public static class AuthEndpoints
 		{
 			var token = await service.LoginWithDiscordAsync(request.Code, request.RedirectUri, ct);
 			return Results.Ok(new LoginWithDiscordResponse(token));
-		});
+		}).RequireRateLimiting(RateLimits.DiscordLogin);
 
 		// Trades a Firebase ID token for a session token (see SessionTokenIssuer). Firebase scheme
 		// only, so a session token can't be used to keep minting fresh ones — renewal always needs
@@ -39,7 +40,7 @@ public static class AuthEndpoints
 
 			var session = issuer.Issue(uid);
 			return Results.Ok(new CreateSessionResponse(session.Token, session.ExpiresAt, player));
-		}).RequireAuthorization(firebaseOnly);
+		}).RequireAuthorization(firebaseOnly).RequireRateLimiting(RateLimits.UserWrites);
 
 		var players = app.MapGroup("/api/players/me/discord");
 
@@ -47,12 +48,12 @@ public static class AuthEndpoints
 		{
 			var player = await service.LinkDiscordAsync(http.User.GetUid()!, request.Code, request.RedirectUri, ct);
 			return player is null ? Results.NotFound() : Results.Ok(player);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		players.MapPost("/unlink", async (HttpContext http, IAuthService service, CancellationToken ct) =>
 		{
 			var player = await service.UnlinkDiscordAsync(http.User.GetUid()!, ct);
 			return player is null ? Results.NotFound() : Results.Ok(player);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 	}
 }

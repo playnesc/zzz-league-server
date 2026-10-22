@@ -27,6 +27,7 @@ public class AppStartupTests(PostgresFixture postgres)
 		var client = factory.CreateClient();
 
 		Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
+		Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/ready")).StatusCode);
 		// Anonymous, DB-backed reads through the full pipeline (auth, visibility, EF).
 		Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/tournaments")).StatusCode);
 		Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/players")).StatusCode);

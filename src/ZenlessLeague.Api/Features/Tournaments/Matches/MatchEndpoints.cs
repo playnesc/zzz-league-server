@@ -1,4 +1,5 @@
 using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
@@ -30,7 +31,7 @@ public static class MatchEndpoints
 
 			var match = await service.SubmitPlayerResultAsync(id, matchId, uid, request, ct);
 			return match is null ? Results.NotFound() : Results.Ok(match);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		group.MapPost("/{matchId:guid}/nexus-preview", async (
 			Guid id, Guid matchId, NexusPreviewRequest request, HttpContext http, IMatchService service, CancellationToken ct) =>
@@ -43,7 +44,7 @@ public static class MatchEndpoints
 
 			var preview = await service.PreviewNexusResultAsync(id, matchId, uid, request, ct);
 			return preview is null ? Results.NotFound() : Results.Ok(preview);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		group.MapPost("/{matchId:guid}/admin-result", async (
 			Guid id, Guid matchId, SetAdminResultRequest request, IMatchService service, CancellationToken ct) =>

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Features.Players;
 
@@ -73,7 +74,7 @@ public static class PlayerEndpoints
 
 			var player = await service.UpdateNameAsync(uid, request.Name, ct);
 			return player is null ? Results.NotFound() : Results.Ok(player);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		group.MapPut("/{uid}/avatar", async (string uid, UpdatePlayerAvatarRequest request, HttpContext http, IPlayerService service, CancellationToken ct) =>
 		{
@@ -84,6 +85,6 @@ public static class PlayerEndpoints
 
 			var player = await service.UpdateAvatarAsync(uid, request.Avatar, ct);
 			return player is null ? Results.NotFound() : Results.Ok(player);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 	}
 }

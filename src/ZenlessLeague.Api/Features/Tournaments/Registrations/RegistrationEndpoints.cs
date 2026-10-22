@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Features.Tournaments;
 
@@ -22,7 +23,7 @@ public static class RegistrationEndpoints
 
 			var registration = await service.RegisterSoloAsync(id, request, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		}).RequireAuthorization().RequireVisibleTournament();
+		}).RequireAuthorization().RequireVisibleTournament().RequireRateLimiting(RateLimits.UserWrites);
 
 		group.MapPost("/team", async (
 			Guid id, TeamRegistrationRequest request, HttpContext http, IAuthorizationService authorization,
@@ -43,7 +44,7 @@ public static class RegistrationEndpoints
 
 			var registration = await service.RegisterTeamAsync(id, request, ct);
 			return registration is null ? Results.NotFound() : Results.Ok(registration);
-		}).RequireAuthorization().RequireVisibleTournament();
+		}).RequireAuthorization().RequireVisibleTournament().RequireRateLimiting(RateLimits.UserWrites);
 
 		// Public — anonymous visitors can browse participants too. callerUid (from the token if any
 		// was sent; null for anonymous) is what ListAsync/GetAsync use to decide which
@@ -95,6 +96,6 @@ public static class RegistrationEndpoints
 				false => Results.NotFound(),
 				true => Results.NoContent(),
 			};
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 	}
 }

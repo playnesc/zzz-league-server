@@ -1,8 +1,10 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ZenlessLeague.Api.Features.Auth;
@@ -125,6 +127,7 @@ builder.Services.AddAuthorizationBuilder()
 	.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)));
 
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
+builder.Services.AddApiRateLimiting();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddSingleton<ISessionTokenIssuer>(new SessionTokenIssuer(sessionSigningKey, TimeProvider.System));
 
@@ -214,7 +217,40 @@ builder.Services.AddScoped<IArchiveRepository, ArchiveRepository>();
 builder.Services.AddScoped<ISeasonTimerRepository, SeasonTimerRepository>();
 builder.Services.AddScoped<ISeasonService, SeasonService>();
 
+// TLS terminates at Coolify's proxy, so without this every request's RemoteIpAddress is the proxy's
+// (one shared rate-limit bucket, useless logs). X-Forwarded-For is only honored when the direct peer
+// is on a private network — i.e. the proxy on the Docker network — and only its last hop is used,
+// which is the address the proxy itself saw, so a client can't spoof it by sending the header.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+	options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+	options.KnownNetworks.Clear();
+	options.KnownProxies.Clear();
+	foreach (var (prefix, length) in new[] { ("10.0.0.0", 8), ("172.16.0.0", 12), ("192.168.0.0", 16), ("127.0.0.0", 8) })
+	{
+		options.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(IPAddress.Parse(prefix), length));
+	}
+	options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
+
 var app = builder.Build();
+
+// Secrets that are only read when first used (so local development works without them) — a
+// deployment missing one would otherwise only find out when that feature is first exercised.
+if (!app.Environment.IsDevelopment())
+{
+	string[] requiredSettings = ["Challonge:ApiKey", "Discord:BotToken", "Discord:GuildId", "Discord:ClientId", "Discord:ClientSecret", "Firebase:StorageBucket"];
+	var missing = requiredSettings.Where(key => string.IsNullOrWhiteSpace(app.Configuration[key])).ToList();
+	if (string.IsNullOrWhiteSpace(app.Configuration["Firebase:CredentialsJson"]) && string.IsNullOrWhiteSpace(app.Configuration["Firebase:CredentialsPath"]))
+	{
+		missing.Add("Firebase:CredentialsJson (or Firebase:CredentialsPath)");
+	}
+
+	if (missing.Count > 0)
+	{
+		app.Logger.LogError("Missing configuration — the features that need it will fail: {Settings}", string.Join(", ", missing));
+	}
+}
 
 // Apply pending EF migrations before serving requests, so a deploy that ships a migration can't
 // run new code against an old schema. Single API instance, so no cross-instance race; if a
@@ -231,7 +267,10 @@ using (var scope = app.Services.CreateScope())
 	}
 }
 
-// First in the pipeline so it wraps every other middleware/endpoint below.
+// Before anything that reads the client address or scheme.
+app.UseForwardedHeaders();
+
+// Wraps every other middleware/endpoint below.
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -245,8 +284,17 @@ app.UseCors("Frontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
+// After authentication: the per-user limits partition by the caller's uid.
+app.UseRateLimiter();
 
+// Liveness only — deliberately doesn't touch the database, so a database blip doesn't get the
+// container marked unhealthy and taken out of rotation. /health/ready includes the database, for
+// monitoring.
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>
+	await db.Database.CanConnectAsync(ct)
+		? Results.Ok(new { status = "ok" })
+		: Results.Json(new { status = "database unavailable" }, statusCode: StatusCodes.Status503ServiceUnavailable));
 app.MapAuthEndpoints();
 app.MapPlayerEndpoints();
 app.MapTeamEndpoints();

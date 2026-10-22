@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Infrastructure.Authorization;
+using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Features.Teams;
 
@@ -20,7 +21,7 @@ public static class TeamEndpoints
 
 			var team = await service.CreateAsync(request, ct);
 			return Results.Created($"/api/teams/{team.Id}", team);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		// Keyset-paginated (CreatedAt desc) — the all-teams list, same pattern as /api/history.
 		group.MapGet("/", async (int? take, DateTimeOffset? beforeCreatedAt, Guid? beforeId, ITeamService service, CancellationToken ct) =>
@@ -51,7 +52,7 @@ public static class TeamEndpoints
 
 			var team = await service.UpdateAsync(id, request, ct);
 			return team is null ? Results.NotFound() : Results.Ok(team);
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		group.MapDelete("/{id:guid}", async (Guid id, HttpContext http, IAuthorizationService authorization, ITeamService service, CancellationToken ct) =>
 		{
@@ -67,7 +68,7 @@ public static class TeamEndpoints
 			}
 
 			return await service.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound();
-		}).RequireAuthorization();
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 	}
 
 	private static async Task<bool> CallerIsAsync(HttpContext http, IAuthorizationService authorization, string playerId) =>
