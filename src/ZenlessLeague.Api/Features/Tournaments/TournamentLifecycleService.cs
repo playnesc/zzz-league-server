@@ -249,6 +249,17 @@ public class TournamentLifecycleService(
 			throw new TournamentLifecycleException("Tournament has no Challonge bracket.");
 		}
 
+		// Finishing awards played counts and the prize Elo bonus — never apply those twice.
+		if (tournament.State == TournamentState.Complete)
+		{
+			throw new TournamentLifecycleException("Tournament is already complete.");
+		}
+
+		if (!TournamentStateMachine.HasStarted(tournament.State))
+		{
+			throw new TournamentLifecycleException("Tournament has not started yet.");
+		}
+
 		var isTeamTournament = tournament.RegistrationType == TournamentRegistrationType.Team;
 		List<ChallongeParticipantResult>? challongeParticipants = null;
 		List<TournamentChallongeParticipant>? ourParticipants = null;
@@ -510,6 +521,7 @@ public class TournamentLifecycleService(
 				MinTier = tournament.MinTier,
 				MaxTier = tournament.MaxTier,
 				RegistrationType = tournament.RegistrationType,
+				GameMode = tournament.GameMode,
 				BracketType = tournament.BracketType,
 				OverrideEloChange = tournament.OverrideEloChange,
 				ConsolationMatchesTargetRank = tournament.ConsolationMatchesTargetRank,
@@ -594,6 +606,8 @@ public class TournamentLifecycleService(
 		DarteNickname = d.DarteNickname,
 		DartePresetName = d.DartePresetName,
 		RosterName = d.RosterName,
+		RosterScreenshotUrl = d.RosterScreenshotUrl,
+		HoyolabScreenshotUrl = d.HoyolabScreenshotUrl,
 	};
 
 	// t.WinnerId is only ever set post-FinishAsync, so this is a no-op query for every tournament

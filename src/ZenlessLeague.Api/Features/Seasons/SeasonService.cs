@@ -36,7 +36,8 @@ public class SeasonService(
 	IArchiveRepository archiveRepository,
 	IHistoryRepository historyRepository,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
-	ISeasonTimerRepository seasonTimerRepository) : ISeasonService
+	ISeasonTimerRepository seasonTimerRepository,
+	ILogger<SeasonService> logger) : ISeasonService
 {
 	public async Task FinalizeSeasonAsync(CancellationToken ct = default)
 	{
@@ -69,9 +70,29 @@ public class SeasonService(
 
 		await playerRepository.SaveChangesAsync(ct);
 
-		// Unguarded — the elo/points rollover above is already committed, so a Discord failure
-		// here surfaces as an error without undoing the season finalize.
-		await Task.WhenAll(uidsToResync.Select(uid => discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct)));
+		// Sequential, not Task.WhenAll — each call reads the player through the shared scoped
+		// DbContext, which doesn't allow concurrent operations (and every call hits the same Discord
+		// rate-limit bucket anyway). One player's Discord failure doesn't stop the rest; the
+		// rollover above is already committed, so failures are reported after everyone was tried.
+		var failedUids = new List<string>();
+		foreach (var uid in uidsToResync)
+		{
+			try
+			{
+				await discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct);
+			}
+			catch (Exception ex) when (ex is not OperationCanceledException)
+			{
+				logger.LogWarning(ex, "Season finalize: Discord role resync failed for player {Uid}", uid);
+				failedUids.Add(uid);
+			}
+		}
+
+		if (failedUids.Count > 0)
+		{
+			throw new SeasonValidationException(
+				$"Season was finalized, but Discord role sync failed for {failedUids.Count} player(s): {string.Join(", ", failedUids)}.");
+		}
 	}
 
 	public async Task ResetSeasonAsync(string seasonName, CancellationToken ct = default)

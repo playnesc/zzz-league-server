@@ -163,6 +163,26 @@ public class MatchServiceTests
 	}
 
 	[Fact]
+	public async Task SyncFromChallongeAsync_CompletedTournament_StaysComplete()
+	{
+		await using var context = CreateContext();
+		var (tournament, _, _, _) = await SeedAsync(context);
+		tournament.State = TournamentState.Complete;
+		await context.SaveChangesAsync();
+
+		var (service, challonge, notifier) = CreateService(context);
+		challonge.Matches = [new ChallongeMatchResult("555", 1, 1, "complete", "c1", "c1", "c2")];
+
+		// e.g. "refresh games", or an admin correcting a result after Finish — must not reopen the
+		// tournament, which would let Finish award prize Elo/played counts a second time.
+		await service.SyncFromChallongeAsync(tournament.Id);
+
+		var reloadedTournament = await context.Tournaments.SingleAsync(t => t.Id == tournament.Id);
+		Assert.Equal(TournamentState.Complete, reloadedTournament.State);
+		Assert.Empty(notifier.TournamentChanged);
+	}
+
+	[Fact]
 	public async Task SubmitPlayerResultAsync_NexusLink_BothApprove_FinalizesAndRegistersHistory()
 	{
 		await using var context = CreateContext();

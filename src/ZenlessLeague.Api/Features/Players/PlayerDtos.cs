@@ -2,8 +2,6 @@ namespace ZenlessLeague.Api.Features.Players;
 
 public record CreatePlayerRequest(string Uid, string Name, string? Avatar = null);
 
-public record ClaimPlayerRequest(string ExistingName, string NewUid);
-
 public record UpdatePlayerRoleRequest(PlayerRole Role);
 
 // GET /api/players/staff (admin page) — moderators and admins only.

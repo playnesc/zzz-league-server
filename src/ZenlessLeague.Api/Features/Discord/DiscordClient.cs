@@ -31,10 +31,19 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+	// "Unknown Member" means the user isn't (or is no longer) in the guild — there's no role to add
+	// or remove, so it's a no-op rather than failing e.g. unlinking a Discord account whose owner
+	// has already left the server. Any other 404 (e.g. "Unknown Role" — a misconfigured role id)
+	// still throws.
 	public async Task AddMemberRoleAsync(string discordUserId, string roleId, CancellationToken ct = default)
 	{
 		var guildId = RequireGuildId();
 		var response = await SendAsync(HttpMethod.Put, $"guilds/{guildId}/members/{discordUserId}/roles/{roleId}", null, ct);
+		if (await IsUnknownMemberAsync(response, ct))
+		{
+			return;
+		}
+
 		await ThrowIfErrorAsync(response, ct);
 	}
 
@@ -42,6 +51,11 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 	{
 		var guildId = RequireGuildId();
 		var response = await SendAsync(HttpMethod.Delete, $"guilds/{guildId}/members/{discordUserId}/roles/{roleId}", null, ct);
+		if (await IsUnknownMemberAsync(response, ct))
+		{
+			return;
+		}
+
 		await ThrowIfErrorAsync(response, ct);
 	}
 
@@ -147,6 +161,31 @@ public class DiscordClient(HttpClient httpClient, IOptions<DiscordOptions> optio
 	}
 
 	private record DiscordRateLimitResponse([property: JsonPropertyName("retry_after")] double? RetryAfter);
+
+	// https://discord.com/developers/docs/topics/opcodes-and-status-codes#json — 10007 = Unknown Member.
+	private const int UnknownMemberErrorCode = 10007;
+
+	private static async Task<bool> IsUnknownMemberAsync(HttpResponseMessage response, CancellationToken ct)
+	{
+		if (response.StatusCode != HttpStatusCode.NotFound)
+		{
+			return false;
+		}
+
+		// Buffered so ThrowIfErrorAsync can still read the body if this isn't Unknown Member.
+		await response.Content.LoadIntoBufferAsync(ct);
+		try
+		{
+			var body = await response.Content.ReadFromJsonAsync<DiscordErrorResponse>(JsonOptions, ct);
+			return body?.Code == UnknownMemberErrorCode;
+		}
+		catch (JsonException)
+		{
+			return false;
+		}
+	}
+
+	private record DiscordErrorResponse([property: JsonPropertyName("code")] int? Code);
 
 	private static async Task ThrowIfErrorAsync(HttpResponseMessage response, CancellationToken ct)
 	{

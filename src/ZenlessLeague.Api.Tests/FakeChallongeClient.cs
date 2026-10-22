@@ -23,8 +23,11 @@ public class FakeChallongeClient : IChallongeClient
 	public Task<List<ChallongeMatchResult>> GetMatchesAsync(string challongeTournamentId, CancellationToken ct = default) =>
 		Task.FromResult(Matches);
 
+	// Final standings served to FinishAsync (ChallongeParticipantId/Misc/FinalRank).
+	public List<ChallongeParticipantResult> Participants { get; set; } = [];
+
 	public Task<List<ChallongeParticipantResult>> GetAllParticipantsAsync(string challongeTournamentId, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+		Task.FromResult(Participants);
 
 	// Lets tests simulate N transient failures before StartAsync finally succeeds — decremented
 	// on every call, throwing while positive.
@@ -43,8 +46,13 @@ public class FakeChallongeClient : IChallongeClient
 		return Task.FromResult(true);
 	}
 
-	public Task<bool> FinalizeAsync(string challongeTournamentId, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+	public int FinalizeAttempts { get; private set; }
+
+	public Task<bool> FinalizeAsync(string challongeTournamentId, CancellationToken ct = default)
+	{
+		FinalizeAttempts++;
+		return Task.FromResult(true);
+	}
 
 	public int ResetFailuresRemaining { get; set; }
 	public int ResetAttempts { get; private set; }

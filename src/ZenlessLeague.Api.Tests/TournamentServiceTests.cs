@@ -186,6 +186,95 @@ public class TournamentServiceTests
 	}
 
 	[Fact]
+	public async Task SplitAsync_NewDivisionsKeepGameModeAndScreenshots()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTournamentAsync(context);
+		tournament.GameMode = TournamentGameMode.DeadlyAssault;
+		foreach (var uid in new[] { "p1", "p2", "p3", "p4" })
+		{
+			var registration = await SeedApprovedRegistrationAsync(context, tournament.Id, uid);
+			registration.Player1Details.RosterScreenshotUrl = $"https://img/{uid}-roster.png";
+			registration.Player1Details.HoyolabScreenshotUrl = $"https://img/{uid}-hoyolab.png";
+		}
+		await context.SaveChangesAsync();
+		var (_, lifecycle, _, _, _) = CreateService(context);
+
+		var result = await lifecycle.SplitAsync(tournament.Id, new SplitTournamentRequest([["p1", "p2"], ["p3", "p4"]]));
+
+		// A Deadly Assault division defaulting to Shiyu Defense would pick match winners backwards.
+		var divisionB = await context.Tournaments.SingleAsync(t => t.Id == result!.DivisionTournamentIds[1]);
+		Assert.Equal(TournamentGameMode.DeadlyAssault, divisionB.GameMode);
+
+		var divisionBRegs = await context.TournamentRegistrations.Where(r => r.TournamentId == divisionB.Id).ToListAsync();
+		Assert.Equal(2, divisionBRegs.Count);
+		Assert.All(divisionBRegs, r =>
+		{
+			Assert.NotNull(r.Player1Details.RosterScreenshotUrl);
+			Assert.NotNull(r.Player1Details.HoyolabScreenshotUrl);
+		});
+	}
+
+	// Seeds a started solo tournament whose Challonge bracket has p1 (rank 1) and p2 (rank 2).
+	private static async Task<(Tournament Tournament, FakeChallongeClient Challonge, ITournamentLifecycleService Lifecycle)> SeedStartedForFinishAsync(AppDbContext context)
+	{
+		var tournament = await SeedTournamentAsync(context, TournamentState.AwaitingReview, challongeTournamentId: "ctid");
+		var p1 = TestPlayers.Create(context, "p1");
+		var p2 = TestPlayers.Create(context, "p2");
+		context.TournamentChallongeParticipants.Add(new TournamentChallongeParticipant { TournamentId = tournament.Id, ChallongeParticipantId = "c1", PlayerId = p1.Id });
+		context.TournamentChallongeParticipants.Add(new TournamentChallongeParticipant { TournamentId = tournament.Id, ChallongeParticipantId = "c2", PlayerId = p2.Id });
+		await context.SaveChangesAsync();
+
+		var (_, lifecycle, _, challonge, _) = CreateService(context);
+		challonge.Participants = [new("c1", p1.Id.ToString(), 1), new("c2", p2.Id.ToString(), 2)];
+		return (tournament, challonge, lifecycle);
+	}
+
+	[Fact]
+	public async Task FinishAsync_AppliesPrizeBonusAndPlayedCounts()
+	{
+		await using var context = CreateContext();
+		var (tournament, _, lifecycle) = await SeedStartedForFinishAsync(context);
+
+		var result = await lifecycle.FinishAsync(tournament.Id);
+
+		Assert.Equal(TournamentState.Complete, result!.State);
+		Assert.Equal("p1", result.WinnerId);
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		var p2 = await context.Players.SingleAsync(p => p.Uid == "p2");
+		Assert.Equal(1040, p1.Elo); // seasonal (no override): +40 for 1st
+		Assert.Equal(1020, p2.Elo); // +20 for 2nd
+		Assert.Equal(1, p1.PlayedTournamentCount);
+		Assert.Equal(1, p2.SeasonalPlayedTournamentCount);
+	}
+
+	[Fact]
+	public async Task FinishAsync_AlreadyComplete_ThrowsWithoutReapplyingRewards()
+	{
+		await using var context = CreateContext();
+		var (tournament, challonge, lifecycle) = await SeedStartedForFinishAsync(context);
+		await lifecycle.FinishAsync(tournament.Id);
+
+		await Assert.ThrowsAsync<TournamentLifecycleException>(() => lifecycle.FinishAsync(tournament.Id));
+
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		Assert.Equal(1040, p1.Elo);
+		Assert.Equal(1, p1.PlayedTournamentCount);
+		Assert.Equal(1, challonge.FinalizeAttempts);
+	}
+
+	[Fact]
+	public async Task FinishAsync_NotStarted_Throws()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTournamentAsync(context, TournamentState.BracketCreated, challongeTournamentId: "ctid");
+		var (_, lifecycle, _, challonge, _) = CreateService(context);
+
+		await Assert.ThrowsAsync<TournamentLifecycleException>(() => lifecycle.FinishAsync(tournament.Id));
+		Assert.Equal(0, challonge.FinalizeAttempts);
+	}
+
+	[Fact]
 	public async Task SplitAsync_GroupsDontCoverEveryApprovedPlayerExactlyOnce_Throws()
 	{
 		await using var context = CreateContext();

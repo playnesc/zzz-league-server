@@ -99,7 +99,10 @@ public class MatchService(
 		await matchRepository.SaveChangesAsync(ct);
 		await notifier.MatchesSyncedAsync(tournamentId, ct);
 
-		if (allMatchesPlayed)
+		// Only ever Started -> AwaitingReview. A resync of a finished tournament (refresh-games, or
+		// an admin correcting a result after Finish) must not knock Complete back to AwaitingReview,
+		// which would let Finish run — and award prize Elo/played counts — a second time.
+		if (allMatchesPlayed && tournament.State == TournamentState.Started)
 		{
 			tournament.State = TournamentState.AwaitingReview;
 			await tournamentRepository.SaveChangesAsync(ct);

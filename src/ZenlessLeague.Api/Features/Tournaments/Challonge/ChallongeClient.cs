@@ -293,15 +293,15 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 
 		if (!response.IsSuccessStatusCode)
 		{
+			// Request headers are deliberately not logged — they carry the API key (Authorization).
+			// Content headers are safe and are what diagnosed the old blank-Content-Type 415s.
 			await response.Content.LoadIntoBufferAsync(ct);
-			var requestHeaders = string.Join("; ", request.Headers.Select(h => $"{h.Key}=[{string.Join("|", h.Value)}]"));
-			var contentHeaders = request.Content is null
-				? "(no content)"
-				: string.Join("; ", request.Content.Headers.Select(h => $"{h.Key}=[{string.Join("|", h.Value)}]"));
+			var contentHeaders = string.Join("; ", request.Content.Headers.Select(h => $"{h.Key}=[{string.Join("|", h.Value)}]"));
 			var responseBody = await response.Content.ReadAsStringAsync(ct);
 			logger.LogWarning(
-				"Challonge API call failed: {Method} {Path} -> {StatusCode}\nRequest headers: {RequestHeaders}\nContent headers: {ContentHeaders}\nResponse body: {ResponseBody}",
-				method, pathOrUrl, (int)response.StatusCode, requestHeaders, contentHeaders, responseBody);
+				"Challonge API call failed: {Method} {Path} -> {StatusCode}\nContent headers: {ContentHeaders}\nResponse body: {ResponseBody}",
+				method, pathOrUrl, (int)response.StatusCode, contentHeaders,
+				responseBody.Length > 4000 ? responseBody[..4000] + "…" : responseBody);
 		}
 
 		return response;

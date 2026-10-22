@@ -13,7 +13,6 @@ public interface IPlayerService
 	// CreatedAt aren't included since no list-context consumer needs them.
 	Task<List<PlayerListItemDto>> ListAsync(IEnumerable<string>? uids = null, CancellationToken ct = default);
 	Task<bool> DeleteAsync(string uid, CancellationToken ct = default);
-	Task<PlayerDto> ClaimAsync(ClaimPlayerRequest request, CancellationToken ct = default);
 	Task<PlayerDto?> UpdateRoleAsync(string uid, UpdatePlayerRoleRequest request, CancellationToken ct = default);
 	Task<List<StaffMemberDto>> ListStaffAsync(CancellationToken ct = default);
 
@@ -24,7 +23,7 @@ public interface IPlayerService
 	Task<LastRegistrationDto?> GetLastRegistrationAsync(string uid, CancellationToken ct = default);
 }
 
-/// <summary>Thrown for player validation failures (duplicate uid/name, missing claim target) — maps to 400.</summary>
+/// <summary>Thrown for player validation failures (duplicate uid/name) — maps to 400.</summary>
 public class PlayerValidationException(string message) : ValidationApiException(message);
 
 public class PlayerService(IPlayerRepository playerRepository, ITournamentRegistrationRepository registrationRepository) : IPlayerService
@@ -62,26 +61,6 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 		(await playerRepository.ListAsync(uids, ct)).Select(ToListItemDto).ToList();
 
 	public Task<bool> DeleteAsync(string uid, CancellationToken ct = default) => playerRepository.DeleteByUidAsync(uid, ct);
-
-	// "Claim a reserved player row": an admin can create a bare-name row ahead of time (Uid ==
-	// Name, no real Firebase Auth account behind it yet); when that person actually signs up,
-	// their stats move onto their real Firebase uid instead of starting over from a fresh row.
-	// Since Player.Id (not Uid) is the primary key, "claiming" is just updating Uid in place —
-	// every FK pointing at this row's Id stays valid without any further work.
-	public async Task<PlayerDto> ClaimAsync(ClaimPlayerRequest request, CancellationToken ct = default)
-	{
-		var existing = await playerRepository.GetEntityByUidAsync(request.ExistingName, ct)
-			?? throw new PlayerValidationException($"No reserved player named '{request.ExistingName}' exists.");
-
-		if (await playerRepository.GetEntityByUidAsync(request.NewUid, ct) is not null)
-		{
-			throw new PlayerValidationException($"Player '{request.NewUid}' already exists.");
-		}
-
-		existing.Uid = request.NewUid;
-		await playerRepository.SaveChangesAsync(ct);
-		return ToDto(existing);
-	}
 
 	public async Task<PlayerDto?> UpdateRoleAsync(string uid, UpdatePlayerRoleRequest request, CancellationToken ct = default)
 	{

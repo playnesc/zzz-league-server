@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
+using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
@@ -17,7 +20,8 @@ public class SeasonServiceTests
 			new ArchiveRepository(context),
 			new HistoryRepository(context),
 			TestDiscord.CreateRoleAssignmentService(context),
-			new SeasonTimerRepository(context));
+			new SeasonTimerRepository(context),
+			NullLogger<SeasonService>.Instance);
 
 	[Fact]
 	public async Task FinalizeSeasonAsync_FoldsTournamentPointsIntoEloAndRecomputesTier()
@@ -34,6 +38,35 @@ public class SeasonServiceTests
 		Assert.Equal(0, p1.TournamentPoints);
 		Assert.True(p1.IsMidConfirmed);
 		Assert.NotNull(p1.LastEloUpdateTimestamp);
+	}
+
+	[Fact]
+	public async Task FinalizeSeasonAsync_DiscordFailureForOnePlayer_StillResyncsTheRestAndReportsIt()
+	{
+		await using var context = CreateContext();
+		foreach (var uid in new[] { "p1", "p2" })
+		{
+			var player = TestPlayers.Create(context, uid, elo: 1000);
+			player.TournamentPoints = 250; // crosses the mid-tier threshold, so both need a role resync
+			player.DiscordId = $"d-{uid}";
+		}
+		await context.SaveChangesAsync();
+
+		var discord = new FakeDiscordClient();
+		discord.UnknownMemberDiscordIds.Add("d-p1");
+		var roleAssignment = new DiscordRoleAssignmentService(
+			new PlayerRepository(context), discord,
+			Options.Create(new DiscordOptions { NewbieRoleId = "newbie", MidRoleId = "mid", HighRoleId = "high" }));
+		var service = new SeasonService(
+			new PlayerRepository(context), new ArchiveRepository(context), new HistoryRepository(context),
+			roleAssignment, new SeasonTimerRepository(context), NullLogger<SeasonService>.Instance);
+
+		var ex = await Assert.ThrowsAsync<SeasonValidationException>(() => service.FinalizeSeasonAsync());
+
+		Assert.Contains("p1", ex.Message);
+		// p1 (first by name) failing didn't stop p2's resync, and the rollover itself is committed.
+		Assert.Contains(("d-p2", "mid"), discord.AddedMemberRoles);
+		Assert.All(await context.Players.ToListAsync(), p => Assert.Equal(1250, p.Elo));
 	}
 
 	[Fact]
