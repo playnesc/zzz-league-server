@@ -10,6 +10,9 @@ public enum ContributionStatus { Pending, Approved, Rejected }
 // entire "assign this agent to this engine" mechanism — no separate assignment concept exists.
 public class Contribution
 {
+	// Cap for the free-text fields of contributions, reviews and review comments.
+	public const int TextMaxLength = 2000;
+
 	public Guid Id { get; set; }
 	public Guid AuthorPlayerId { get; set; }
 

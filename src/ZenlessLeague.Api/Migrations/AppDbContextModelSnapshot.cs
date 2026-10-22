@@ -1519,6 +1519,9 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<Guid>("P1PlayerId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool?>("P1Won")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("P2Change")
                         .HasColumnType("integer");
 
@@ -1830,6 +1833,12 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<Guid>("TournamentId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.Property<Guid?>("WinnerPlayerId")
                         .HasColumnType("uuid");
 
@@ -1952,6 +1961,12 @@ namespace ZenlessLeague.Api.Migrations
 
                     b.Property<DateTimeOffset>("TournamentStartDate")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<bool>("Visible")
                         .HasColumnType("boolean");

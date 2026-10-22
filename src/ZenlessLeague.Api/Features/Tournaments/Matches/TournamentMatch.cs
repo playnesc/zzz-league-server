@@ -34,4 +34,8 @@ public class TournamentMatch
 	public string? NexusResultId { get; set; }
 	public string? NexusSnapshot { get; set; }
 	public bool? NexusP1IsLeft { get; set; }
+
+	// Optimistic concurrency token, mapped to Postgres's xmin system column (see AppDbContext) — two
+	// requests racing to finalize the same result can't both save (and both register Elo).
+	public uint Version { get; set; }
 }

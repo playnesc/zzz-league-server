@@ -2,6 +2,8 @@ namespace ZenlessLeague.Api.Features.Teams;
 
 public class Team
 {
+	public const int NameMaxLength = 100;
+
 	public Guid Id { get; set; }
 	public required string Name { get; set; }
 	public string? PhotoUrl { get; set; }

@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Data;
@@ -16,7 +15,8 @@ public class FirebaseStorageException(string message) : ValidationApiException(m
 
 public interface IFirebaseStorageClient
 {
-	// Decodes a data-url base64 image, enforces the 3MB cap, deletes any previously uploaded
+	// Decodes and validates a data-url base64 image (allowlisted types only, 3MB cap — see
+	// ImageUpload), deletes any previously uploaded
 	// file(s) under the same prefix (so re-uploading with a different extension doesn't leave
 	// orphans), uploads, and returns the public URL.
 	Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default);
@@ -28,45 +28,19 @@ public interface IFirebaseStorageClient
 
 // REST client for the Firebase/Google Cloud Storage JSON API, using a GoogleCredential
 // bearer-token. Verified against the real zzz-league.firebasestorage.app bucket.
-public partial class FirebaseStorageClient(HttpClient httpClient, Lazy<GoogleCredential> credential, IOptions<FirebaseStorageOptions> options) : IFirebaseStorageClient
+public class FirebaseStorageClient(HttpClient httpClient, Lazy<GoogleCredential> credential, IOptions<FirebaseStorageOptions> options) : IFirebaseStorageClient
 {
-	private const long MaxImageSizeBytes = 3 * 1024 * 1024;
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-	// Matches any "data:<media-type>;base64," prefix, not just plain-word media types -- browsers
-	// report some image types with characters \w doesn't cover (e.g. SVG as "image/svg+xml"), and
-	// falling back to a made-up content type while leaving the real prefix stuck to the payload
-	// broke every such upload (the stray "data:image/svg+xml;base64," text isn't valid base64).
-	[GeneratedRegex(@"^data:([^;]+);base64,")]
-	private static partial Regex DataUrlPattern();
 
 	public async Task<string> UploadImageAsync(string base64Image, string pathPrefix, CancellationToken ct = default)
 	{
-		var match = DataUrlPattern().Match(base64Image);
-		var contentType = match.Success ? match.Groups[1].Value : "image/jpeg";
-		var ext = contentType.Split('/')[1].Split('+')[0];
-
-		var base64Data = DataUrlPattern().Replace(base64Image, string.Empty);
-		byte[] buffer;
-		try
-		{
-			buffer = Convert.FromBase64String(base64Data);
-		}
-		catch (FormatException)
-		{
-			throw new FirebaseStorageException("Invalid base64 image data.");
-		}
-
-		if (buffer.Length > MaxImageSizeBytes)
-		{
-			throw new FirebaseStorageException("File too large, max 3MB");
-		}
+		var image = ImageUpload.Decode(base64Image);
 
 		var bucket = options.Value.StorageBucket ?? throw new InvalidOperationException("Firebase:StorageBucket is not configured.");
-		var filePath = $"{pathPrefix}.{ext}";
+		var filePath = $"{pathPrefix}.{image.Extension}";
 
 		await DeleteByPrefixAsync(bucket, $"{pathPrefix}.", ct);
-		await UploadAsync(bucket, filePath, buffer, contentType, ct);
+		await UploadAsync(bucket, filePath, image.Bytes, image.ContentType, ct);
 
 		return $"https://storage.googleapis.com/{bucket}/{filePath}";
 	}

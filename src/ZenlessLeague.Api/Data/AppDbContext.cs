@@ -37,26 +37,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 		modelBuilder.Entity<Player>(player =>
 		{
 			player.HasKey(p => p.Id);
-			player.Property(p => p.Uid).IsRequired().HasMaxLength(128);
+			player.Property(p => p.Uid).IsRequired().HasMaxLength(Player.UidMaxLength);
 			player.HasIndex(p => p.Uid).IsUnique();
-			player.Property(p => p.Name).IsRequired().HasMaxLength(100);
+			player.Property(p => p.Name).IsRequired().HasMaxLength(Player.NameMaxLength);
 			player.HasIndex(p => p.Name).IsUnique();
 			player.HasIndex(p => p.DiscordId).IsUnique().HasFilter("\"DiscordId\" IS NOT NULL");
 		});
 
 		modelBuilder.Entity<Team>(team =>
 		{
-			team.Property(t => t.Name).IsRequired().HasMaxLength(100);
+			team.Property(t => t.Name).IsRequired().HasMaxLength(Team.NameMaxLength);
 			team.HasOne<Player>().WithMany().HasForeignKey(t => t.Player1Id).OnDelete(DeleteBehavior.Restrict);
 			team.HasOne<Player>().WithMany().HasForeignKey(t => t.Player2Id).OnDelete(DeleteBehavior.Restrict);
 		});
 
 		modelBuilder.Entity<Tournament>(tournament =>
 		{
-			tournament.Property(t => t.Name).IsRequired().HasMaxLength(200);
+			tournament.Property(t => t.Name).IsRequired().HasMaxLength(Tournament.NameMaxLength);
 			tournament.HasIndex(t => t.LegacyId).IsUnique().HasFilter("\"LegacyId\" IS NOT NULL");
 			tournament.HasOne<Player>().WithMany().HasForeignKey(t => t.WinnerId).OnDelete(DeleteBehavior.Restrict);
 			tournament.HasOne<Team>().WithMany().HasForeignKey(t => t.WinnerTeamId).OnDelete(DeleteBehavior.Restrict);
+			// uint + IsRowVersion maps to Postgres's xmin system column — no real column is added.
+			tournament.Property(t => t.Version).IsRowVersion();
 		});
 
 		modelBuilder.Entity<TournamentRegistration>(reg =>
@@ -130,6 +132,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			match.HasOne<HistoryEntry>().WithMany().HasForeignKey(m => m.HistoryEntryId2).OnDelete(DeleteBehavior.SetNull);
 			match.Property(m => m.NexusResultId).HasMaxLength(64);
 			match.Property(m => m.NexusSnapshot).HasColumnType("jsonb");
+			match.Property(m => m.Version).IsRowVersion();
 		});
 
 		modelBuilder.Entity<HistoryEntry>(entry =>

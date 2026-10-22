@@ -94,6 +94,7 @@ public class HistoryService(
 			P1Change = p1Change,
 			P2PlayerId = p2PlayerId,
 			P2Change = p2Change,
+			P1Won = p1Win,
 			TournamentId = tournamentId,
 			TournamentMatchId = tournamentMatchId,
 			Kind = tournamentId is null ? (techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.Custom) : kind,
@@ -145,6 +146,7 @@ public class HistoryService(
 			P1Change = team1Change,
 			P2PlayerId = team2P1.Id,
 			P2Change = team2Change,
+			P1Won = p1Win,
 			TournamentId = tournamentId,
 			TournamentMatchId = tournamentMatchId,
 			Kind = kind,
@@ -159,6 +161,7 @@ public class HistoryService(
 			P1Change = team1Change,
 			P2PlayerId = team2P2.Id,
 			P2Change = team2Change,
+			P1Won = p1Win,
 			TournamentId = tournamentId,
 			TournamentMatchId = tournamentMatchId,
 			Kind = kind,
@@ -180,47 +183,51 @@ public class HistoryService(
 			return false;
 		}
 
-		if (entry.P2PlayerId is not null && entry.P2Change is not null)
+		var p1 = await playerRepository.GetEntityByIdAsync(entry.P1PlayerId, ct)
+			?? throw new InvalidOperationException($"Player '{entry.P1PlayerId}' referenced by history entry '{entry.Id}' is missing.");
+
+		if (entry.P2Change is null)
 		{
-			var p1 = await playerRepository.GetEntityByIdAsync(entry.P1PlayerId, ct)
-				?? throw new InvalidOperationException($"Player '{entry.P1PlayerId}' referenced by history entry '{entry.Id}' is missing.");
-			var p2 = await playerRepository.GetEntityByIdAsync(entry.P2PlayerId.Value, ct)
-				?? throw new InvalidOperationException($"Player '{entry.P2PlayerId}' referenced by history entry '{entry.Id}' is missing.");
-
-			var oldP1Won = entry.P1Change > entry.P2Change.Value;
-
-			p1.TournamentPoints -= entry.P1Change;
-			p2.TournamentPoints -= entry.P2Change.Value;
-
-			if (oldP1Won)
-			{
-				p1.Wins--;
-				p2.Losses--;
-			}
-			else
-			{
-				p1.Losses--;
-				p2.Wins--;
-			}
-		}
-		else
-		{
-			var p1 = await playerRepository.GetEntityByIdAsync(entry.P1PlayerId, ct)
-				?? throw new InvalidOperationException($"Player '{entry.P1PlayerId}' referenced by history entry '{entry.Id}' is missing.");
-
+			// Single-player Elo adjustment (SetPlayerEloAsync): it changed Elo (and tier) only, never
+			// Wins/Losses, so that's all there is to undo.
 			var revertedElo = p1.Elo - entry.P1Change;
 			var (isMidConfirmed, isHighConfirmed) = TierConfirmationCalculator.Compute(p1.IsMidConfirmed, p1.IsHighConfirmed, revertedElo);
 			p1.Elo = revertedElo;
 			p1.IsMidConfirmed = isMidConfirmed;
 			p1.IsHighConfirmed = isHighConfirmed;
+		}
+		else
+		{
+			// A match result: tournament points + one win/loss per side. P2 can be missing on old
+			// migrated entries whose opponent's account no longer exists — P1's side is still undone.
+			// Entries from before P1Won was stored fall back to comparing the changes.
+			var p1Won = entry.P1Won ?? entry.P1Change > entry.P2Change.Value;
+			var p2 = entry.P2PlayerId is Guid p2Id
+				? await playerRepository.GetEntityByIdAsync(p2Id, ct)
+					?? throw new InvalidOperationException($"Player '{p2Id}' referenced by history entry '{entry.Id}' is missing.")
+				: null;
 
-			if (entry.P1Change > 0)
+			p1.TournamentPoints -= entry.P1Change;
+			if (p1Won)
 			{
 				p1.Wins--;
 			}
-			else if (entry.P1Change < 0)
+			else
 			{
 				p1.Losses--;
+			}
+
+			if (p2 is not null)
+			{
+				p2.TournamentPoints -= entry.P2Change.Value;
+				if (p1Won)
+				{
+					p2.Losses--;
+				}
+				else
+				{
+					p2.Wins--;
+				}
 			}
 		}
 

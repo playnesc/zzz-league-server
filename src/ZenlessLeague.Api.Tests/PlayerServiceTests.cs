@@ -34,6 +34,41 @@ public class PlayerServiceTests
 		Assert.Equal("New Name", result!.Name);
 	}
 
+	[Theory]
+	[InlineData("")]
+	[InlineData("   ")]
+	public async Task UpdateNameAsync_Blank_Throws(string name)
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Old Name");
+		var service = CreateService(context);
+
+		await Assert.ThrowsAsync<ValidationApiException>(() => service.UpdateNameAsync("u1", name));
+	}
+
+	[Fact]
+	public async Task UpdateNameAsync_LongerThanColumn_ThrowsInsteadOfFailingInTheDatabase()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Old Name");
+		var service = CreateService(context);
+
+		await Assert.ThrowsAsync<ValidationApiException>(() =>
+			service.UpdateNameAsync("u1", new string('x', Player.NameMaxLength + 1)));
+	}
+
+	[Fact]
+	public async Task UpdateNameAsync_TrimsSurroundingWhitespace()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "u1", "Old Name");
+		var service = CreateService(context);
+
+		var result = await service.UpdateNameAsync("u1", "  New Name  ");
+
+		Assert.Equal("New Name", result!.Name);
+	}
+
 	[Fact]
 	public async Task UpdateNameAsync_SameName_Throws()
 	{

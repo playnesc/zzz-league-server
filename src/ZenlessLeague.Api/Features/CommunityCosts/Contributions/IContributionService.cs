@@ -78,7 +78,7 @@ public class ContributionService(
 		_ = await agentCostRepository.GetCatalogEntryAsync(request.AgentId, ct)
 			?? throw new ContributionValidationException($"Agent '{request.AgentId}' does not exist.");
 
-		if (request.ProposedCosts.Length != 7)
+		if (request.ProposedCosts?.Length != 7)
 		{
 			throw new ContributionValidationException("An agent cost proposal must have exactly 7 values (M0-M6).");
 		}
@@ -88,7 +88,7 @@ public class ContributionService(
 			Id = Guid.NewGuid(),
 			AuthorPlayerId = author.Id,
 			AgentId = request.AgentId,
-			Message = request.Message,
+			Message = InputValidation.OptionalText(request.Message, "Message", Contribution.TextMaxLength) ?? string.Empty,
 			ProposedCosts = request.ProposedCosts,
 			Status = ContributionStatus.Pending,
 			CreatedAt = DateTimeOffset.UtcNow,
@@ -109,12 +109,12 @@ public class ContributionService(
 		{
 			_ = await agentCostRepository.GetCatalogEntryAsync(request.OverrideAgentId, ct)
 				?? throw new ContributionValidationException($"Agent '{request.OverrideAgentId}' does not exist.");
-			if (request.ProposedCosts.Length != 5)
+			if (request.ProposedCosts?.Length != 5)
 			{
 				throw new ContributionValidationException("A per-agent engine cost proposal must have exactly 5 values (R1-R5).");
 			}
 		}
-		else if (request.ProposedCosts.Length != 6)
+		else if (request.ProposedCosts?.Length != 6)
 		{
 			throw new ContributionValidationException("An engine base cost proposal must have exactly 6 values.");
 		}
@@ -125,7 +125,7 @@ public class ContributionService(
 			AuthorPlayerId = author.Id,
 			EngineId = request.EngineId,
 			OverrideAgentId = request.OverrideAgentId,
-			Message = request.Message,
+			Message = InputValidation.OptionalText(request.Message, "Message", Contribution.TextMaxLength) ?? string.Empty,
 			ProposedCosts = request.ProposedCosts,
 			Status = ContributionStatus.Pending,
 			CreatedAt = DateTimeOffset.UtcNow,
@@ -150,7 +150,7 @@ public class ContributionService(
 		if (existing is not null)
 		{
 			existing.Vote = request.Vote;
-			existing.Comment = request.Comment;
+			existing.Comment = InputValidation.OptionalText(request.Comment, "Comment", Contribution.TextMaxLength) ?? string.Empty;
 			existing.UpdatedAt = DateTimeOffset.UtcNow;
 			await contributionRepository.SaveChangesAsync(ct);
 		}
@@ -162,7 +162,7 @@ public class ContributionService(
 				ContributionId = contributionId,
 				ReviewerPlayerId = reviewer.Id,
 				Vote = request.Vote,
-				Comment = request.Comment,
+				Comment = InputValidation.OptionalText(request.Comment, "Comment", Contribution.TextMaxLength) ?? string.Empty,
 				CreatedAt = DateTimeOffset.UtcNow,
 				UpdatedAt = DateTimeOffset.UtcNow,
 			}, ct);
@@ -194,7 +194,7 @@ public class ContributionService(
 			Id = Guid.NewGuid(),
 			ReviewId = reviewId,
 			AuthorPlayerId = author.Id,
-			Text = request.Text,
+			Text = InputValidation.RequiredText(request.Text, "Comment", Contribution.TextMaxLength),
 			CreatedAt = DateTimeOffset.UtcNow,
 		}, ct);
 

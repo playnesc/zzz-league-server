@@ -7,6 +7,12 @@ public enum PlayerRole { Player, Moderator, Admin }
 // claim and the frontend's Firebase Auth SDK only ever deals in this string.
 public class Player
 {
+	// Column limits (AppDbContext) and request validation (PlayerService) share these.
+	public const int UidMaxLength = 128;
+	public const int NameMaxLength = 100;
+	// Avatar is an id from the frontend's avatar picker, not free text — this is only an abuse cap.
+	public const int AvatarMaxLength = 200;
+
 	public Guid Id { get; set; }
 	public required string Uid { get; set; }
 	public required string Name { get; set; }

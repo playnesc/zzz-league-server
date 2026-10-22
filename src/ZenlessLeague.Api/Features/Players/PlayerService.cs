@@ -30,21 +30,25 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 {
 	public async Task<PlayerDto> CreateAsync(CreatePlayerRequest request, CancellationToken ct = default)
 	{
-		if (await playerRepository.GetEntityByUidAsync(request.Uid, ct) is not null)
+		var uid = InputValidation.RequiredText(request.Uid, "Uid", Player.UidMaxLength);
+		var name = InputValidation.RequiredText(request.Name, "Name", Player.NameMaxLength);
+		var avatar = InputValidation.OptionalText(request.Avatar, "Avatar", Player.AvatarMaxLength);
+
+		if (await playerRepository.GetEntityByUidAsync(uid, ct) is not null)
 		{
-			throw new PlayerValidationException($"Player '{request.Uid}' already exists.");
+			throw new PlayerValidationException($"Player '{uid}' already exists.");
 		}
 
-		if (await playerRepository.GetByNameAsync(request.Name, ct) is not null)
+		if (await playerRepository.GetByNameAsync(name, ct) is not null)
 		{
-			throw new PlayerValidationException($"Name '{request.Name}' is already taken.");
+			throw new PlayerValidationException($"Name '{name}' is already taken.");
 		}
 
 		var player = await playerRepository.CreateAsync(new Player
 		{
-			Uid = request.Uid,
-			Name = request.Name,
-			Avatar = request.Avatar,
+			Uid = uid,
+			Name = name,
+			Avatar = avatar,
 			CreatedAt = DateTimeOffset.UtcNow,
 		}, ct);
 
@@ -94,6 +98,7 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 	public async Task<PlayerDto?> UpdateNameAsync(string uid, string name, CancellationToken ct = default)
 	{
+		name = InputValidation.RequiredText(name, "Name", Player.NameMaxLength);
 		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
 		if (player is null)
 		{
@@ -117,6 +122,7 @@ public class PlayerService(IPlayerRepository playerRepository, ITournamentRegist
 
 	public async Task<PlayerDto?> UpdateAvatarAsync(string uid, string avatar, CancellationToken ct = default)
 	{
+		avatar = InputValidation.RequiredText(avatar, "Avatar", Player.AvatarMaxLength);
 		var player = await playerRepository.GetEntityByUidAsync(uid, ct);
 		if (player is null)
 		{

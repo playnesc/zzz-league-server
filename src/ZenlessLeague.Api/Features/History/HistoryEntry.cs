@@ -14,6 +14,11 @@ public class HistoryEntry
 	public Guid? P2PlayerId { get; set; } // null for setPlayerElo-style single-player adjustments
 	public int? P2Change { get; set; }
 
+	// Who won a two-player entry, stored explicitly — it can't be inferred from P1Change/P2Change
+	// when both are equal (e.g. OverrideEloChange = 0). Null for single-player adjustments and for
+	// old entries whose winner couldn't be recovered (see migration AddHistoryEntryP1Won).
+	public bool? P1Won { get; set; }
+
 	public Guid? TournamentId { get; set; }
 	public Guid? TournamentMatchId { get; set; }
 	public TournamentMatchKind Kind { get; set; } = TournamentMatchKind.None;

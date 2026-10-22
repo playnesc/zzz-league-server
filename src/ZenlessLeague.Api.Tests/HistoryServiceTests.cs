@@ -97,6 +97,45 @@ public class HistoryServiceTests
 	}
 
 	[Fact]
+	public async Task ReverseMatchResult_ZeroOverride_RestoresTheActualWinnersRecord()
+	{
+		await using var context = CreateContext();
+		var p1 = await SeedPlayerAsync(context, "p1");
+		var p2 = await SeedPlayerAsync(context, "p2");
+		var service = CreateService(context);
+
+		// OverrideEloChange = 0: both changes are 0, so the winner can't be told from the deltas.
+		var entry = await service.RegisterMatchResultAsync(p1.Id, p2.Id, p1Win: true, overrideEloChange: 0);
+		await service.ReverseEntryAsync(entry.Id);
+
+		var p1Reloaded = await context.Players.SingleAsync(p => p.Uid == "p1");
+		var p2Reloaded = await context.Players.SingleAsync(p => p.Uid == "p2");
+		Assert.Equal((0, 0), (p1Reloaded.Wins, p1Reloaded.Losses));
+		Assert.Equal((0, 0), (p2Reloaded.Wins, p2Reloaded.Losses));
+	}
+
+	[Fact]
+	public async Task ReverseEntry_MigratedMatchWithMissingOpponent_RevertsPointsNotElo()
+	{
+		await using var context = CreateContext();
+		var p1 = await SeedPlayerAsync(context, "p1", elo: 1000);
+		p1.TournamentPoints = 25;
+		p1.Wins = 1;
+		// An old migrated match entry whose opponent's account no longer exists.
+		var entry = new HistoryEntry { Id = Guid.NewGuid(), P1PlayerId = p1.Id, P1Change = 25, P2PlayerId = null, P2Change = -22, Timestamp = DateTimeOffset.UtcNow };
+		context.HistoryEntries.Add(entry);
+		await context.SaveChangesAsync();
+		var service = CreateService(context);
+
+		await service.ReverseEntryAsync(entry.Id);
+
+		var p1Reloaded = await context.Players.SingleAsync(p => p.Uid == "p1");
+		Assert.Equal(1000, p1Reloaded.Elo);
+		Assert.Equal(0, p1Reloaded.TournamentPoints);
+		Assert.Equal(0, p1Reloaded.Wins);
+	}
+
+	[Fact]
 	public async Task SetPlayerElo_UpdatesEloAndTierFlagsAndWritesAdjustmentEntry()
 	{
 		await using var context = CreateContext();
@@ -128,6 +167,8 @@ public class HistoryServiceTests
 		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
 		Assert.Equal(1000, p1.Elo);
 		Assert.False(p1.IsMidConfirmed);
+		// An adjustment never touched the win/loss record, so undoing it mustn't either.
+		Assert.Equal((0, 0), (p1.Wins, p1.Losses));
 		Assert.Empty(await service.ListAsync());
 	}
 

@@ -12,6 +12,10 @@ public enum TournamentGameMode { ShiyuDefense, DeadlyAssault }
 // (TournamentMatch), not stored here.
 public class Tournament
 {
+	public const int NameMaxLength = 200;
+	// Discord's own limit for role and channel names.
+	public const int DiscordNameMaxLength = 100;
+
 	public Guid Id { get; set; }
 	public required string Name { get; set; }
 	public string? Description { get; set; }
@@ -50,4 +54,8 @@ public class Tournament
 	public string? DiscordChannelId { get; set; }
 
 	public string? LegacyId { get; set; }
+
+	// Optimistic concurrency token, mapped to Postgres's xmin system column (see AppDbContext) — e.g.
+	// two concurrent Finish calls can't both pass the state check and both award prize Elo.
+	public uint Version { get; set; }
 }

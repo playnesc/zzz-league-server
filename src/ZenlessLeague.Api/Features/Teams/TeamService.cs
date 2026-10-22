@@ -23,6 +23,7 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 {
 	public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct = default)
 	{
+		var name = InputValidation.RequiredText(request.Name, "Team name", Team.NameMaxLength);
 		if (request.CreatorPlayerId == request.Player2PlayerId)
 		{
 			throw new TeamValidationException("A team's two players must be different.");
@@ -41,7 +42,7 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 		var team = await teamRepository.CreateAsync(new Team
 		{
 			Id = teamId,
-			Name = request.Name,
+			Name = name,
 			PhotoUrl = photoUrl,
 			Player1Id = creator.Id,
 			Player2Id = player2.Id,
@@ -77,13 +78,14 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 
 	public async Task<TeamDto?> UpdateAsync(Guid id, EditTeamRequest request, CancellationToken ct = default)
 	{
+		var name = InputValidation.RequiredText(request.Name, "Team name", Team.NameMaxLength);
 		var team = await teamRepository.GetByIdAsync(id, ct);
 		if (team is null)
 		{
 			return null;
 		}
 
-		team.Name = request.Name;
+		team.Name = name;
 		if (request.Photo is not null)
 		{
 			team.PhotoUrl = await storageClient.UploadImageAsync(request.Photo, $"teams/{team.Id}/logo", ct);
@@ -111,12 +113,12 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 		{
 			// Restrict-on-delete FKs (TournamentChallongeParticipants, TournamentMatches'
 			// p1/p2/winner/tech-loss team, Tournaments.WinnerTeamId) surface here as a raw
-			// Postgres 23503 (foreign_key_violation) if this team ever competed in a tournament —
-			// translate that into a message the popup's alert() can actually show the user,
-			// instead of letting it fall through to the generic 500 handler.
+			// Postgres 23001 (restrict_violation — not 23503, which this used to check and so never
+			// matched) if this team ever competed in a tournament — translate that into a message
+			// the popup's alert() can actually show the user.
 			deleted = await teamRepository.DeleteAsync(id, ct);
 		}
-		catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23503" })
+		catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && ApiExceptionHandler.IsStillReferenced(pg))
 		{
 			throw new TeamValidationException(
 				"This team can't be deleted because it has tournament history (bracket entries or match records).");

@@ -27,7 +27,7 @@ public class TournamentService(
 		var tournament = await tournamentRepository.CreateAsync(new Tournament
 		{
 			Id = Guid.NewGuid(),
-			Name = request.Name,
+			Name = InputValidation.RequiredText(request.Name, "Tournament name", Tournament.NameMaxLength),
 			Description = request.Description,
 			RegistrationStartDate = request.RegistrationStartDate,
 			RegistrationEndDate = request.RegistrationEndDate,
@@ -44,8 +44,8 @@ public class TournamentService(
 			Visible = request.Visible,
 			OverrideEloChange = request.OverrideEloChange,
 			ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank,
-			DiscordRoleName = NullIfBlank(request.DiscordRoleName),
-			DiscordChannelName = NullIfBlank(request.DiscordChannelName),
+			DiscordRoleName = DiscordName(request.DiscordRoleName, "Discord role name"),
+			DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name"),
 		}, ct);
 
 		await notifier.TournamentChangedAsync(tournament.Id, ct);
@@ -84,7 +84,7 @@ public class TournamentService(
 			throw new TournamentLifecycleException("Tournament has already started.");
 		}
 
-		tournament.Name = request.Name;
+		tournament.Name = InputValidation.RequiredText(request.Name, "Tournament name", Tournament.NameMaxLength);
 		tournament.Description = request.Description;
 		tournament.RegistrationStartDate = request.RegistrationStartDate;
 		tournament.RegistrationEndDate = request.RegistrationEndDate;
@@ -99,8 +99,8 @@ public class TournamentService(
 		tournament.BracketType = request.BracketType;
 		tournament.ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank;
 		tournament.Visible = request.Visible;
-		tournament.DiscordRoleName = NullIfBlank(request.DiscordRoleName);
-		tournament.DiscordChannelName = NullIfBlank(request.DiscordChannelName);
+		tournament.DiscordRoleName = DiscordName(request.DiscordRoleName, "Discord role name");
+		tournament.DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name");
 
 		await tournamentRepository.SaveChangesAsync(ct);
 		await notifier.TournamentChangedAsync(id, ct);
@@ -147,6 +147,9 @@ public class TournamentService(
 	// a 0-length role/channel name, which it rejects. Blank means "no Discord resource wanted",
 	// same as never filling the field in, so normalize it to null right at the boundary.
 	private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+	private static string? DiscordName(string? s, string fieldName) =>
+		InputValidation.OptionalText(NullIfBlank(s), fieldName, Tournament.DiscordNameMaxLength);
 
 	internal static TournamentDto ToDto(Tournament t, string? winnerUid) => new(
 		t.Id, t.Name, t.Description,
