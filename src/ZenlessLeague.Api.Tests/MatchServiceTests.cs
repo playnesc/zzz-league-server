@@ -116,7 +116,8 @@ public class MatchServiceTests
 			nexus ?? NexusFixtures.ClientWithSamples(),
 			new TournamentRegistrationRepository(context),
 			NullLogger<MatchService>.Instance,
-			Options.Create(new NexusOptions { ParseResults = parseNexusResults }));
+			Options.Create(new NexusOptions { ParseResults = parseNexusResults }),
+			new EfUnitOfWork(context));
 		return (service, challonge, notifier);
 	}
 

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Runs against a real Postgres in Docker (Testcontainers) — the behaviors the fast InMemory
+       suite can't see: constraints, row-version concurrency, real async I/O, and the migrations
+       themselves. Requires Docker to be running. -->
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.9" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZenlessLeague.Api\ZenlessLeague.Api.csproj" />
+    <!-- Reuses the hand-rolled fakes (FakeChallongeClient, FakeDiscordClient, ...) and TestPlayers. -->
+    <ProjectReference Include="..\ZenlessLeague.Api.Tests\ZenlessLeague.Api.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

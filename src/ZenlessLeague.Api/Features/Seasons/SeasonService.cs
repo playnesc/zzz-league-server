@@ -37,7 +37,8 @@ public class SeasonService(
 	IHistoryRepository historyRepository,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
 	ISeasonTimerRepository seasonTimerRepository,
-	ILogger<SeasonService> logger) : ISeasonService
+	ILogger<SeasonService> logger,
+	IUnitOfWork unitOfWork) : ISeasonService
 {
 	public async Task FinalizeSeasonAsync(CancellationToken ct = default)
 	{
@@ -113,31 +114,36 @@ public class SeasonService(
 			IsHighConfirmed = p.IsHighConfirmed,
 		}).ToList();
 
-		// Re-running with a name that already exists overwrites the snapshot. Deleting and
-		// recreating (rather than clearing/refilling the tracked Players collection) keeps this
-		// simple and avoids EF change-tracking edge cases around severed required relationships.
-		var existingArchive = await archiveRepository.GetBySeasonNameAsync(seasonName, ct);
-		if (existingArchive is not null)
+		// Archive and reset commit together — a reset without its archive would lose the season's
+		// standings for good.
+		await unitOfWork.InTransactionAsync(async () =>
 		{
-			await archiveRepository.DeleteAsync(existingArchive, ct);
-		}
+			// Re-running with a name that already exists overwrites the snapshot. Deleting and
+			// recreating (rather than clearing/refilling the tracked Players collection) keeps this
+			// simple and avoids EF change-tracking edge cases around severed required relationships.
+			var existingArchive = await archiveRepository.GetBySeasonNameAsync(seasonName, ct);
+			if (existingArchive is not null)
+			{
+				await archiveRepository.DeleteAsync(existingArchive, ct);
+			}
 
-		await archiveRepository.CreateAsync(new Archive
-		{
-			Id = Guid.NewGuid(),
-			SeasonName = seasonName,
-			CreatedAt = DateTimeOffset.UtcNow,
-			Players = snapshots,
+			await archiveRepository.CreateAsync(new Archive
+			{
+				Id = Guid.NewGuid(),
+				SeasonName = seasonName,
+				CreatedAt = DateTimeOffset.UtcNow,
+				Players = snapshots,
+			}, ct);
+
+			foreach (var player in players)
+			{
+				player.Elo = player.IsHighConfirmed ? 1400 : player.IsMidConfirmed ? 1200 : 1000;
+				player.TournamentPoints = 0;
+				player.SeasonalPlayedTournamentCount = 0;
+			}
+
+			await playerRepository.SaveChangesAsync(ct);
 		}, ct);
-
-		foreach (var player in players)
-		{
-			player.Elo = player.IsHighConfirmed ? 1400 : player.IsMidConfirmed ? 1200 : 1000;
-			player.TournamentPoints = 0;
-			player.SeasonalPlayedTournamentCount = 0;
-		}
-
-		await playerRepository.SaveChangesAsync(ct);
 	}
 
 	public async Task<List<ArchiveDto>> ListArchivesAsync(CancellationToken ct = default)

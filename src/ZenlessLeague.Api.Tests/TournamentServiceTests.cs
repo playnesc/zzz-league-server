@@ -35,7 +35,8 @@ public class TournamentServiceTests
 			new FakeNexusClient(),
 			new TournamentRegistrationRepository(context),
 			NullLogger<MatchService>.Instance,
-			Options.Create(new NexusOptions()));
+			Options.Create(new NexusOptions()),
+			new EfUnitOfWork(context));
 
 		var notifier = new FakeTournamentNotifier();
 		var discord = new FakeDiscordClient();
@@ -50,7 +51,9 @@ public class TournamentServiceTests
 			matchService,
 			historyService,
 			TestDiscord.CreateTournamentResourcesService(context, discord),
-			notifier);
+			notifier,
+			new EfUnitOfWork(context),
+			NullLogger<TournamentLifecycleService>.Instance);
 		return (service, lifecycle, notifier, challonge, discord);
 	}
 
@@ -213,6 +216,42 @@ public class TournamentServiceTests
 			Assert.NotNull(r.Player1Details.RosterScreenshotUrl);
 			Assert.NotNull(r.Player1Details.HoyolabScreenshotUrl);
 		});
+	}
+
+	[Fact]
+	public async Task CreateChallongeBracketAsync_RecordsParticipantsAndLocksTournament()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTournamentAsync(context, TournamentState.RegistrationClosed);
+		await SeedApprovedRegistrationAsync(context, tournament.Id, "p1");
+		await SeedApprovedRegistrationAsync(context, tournament.Id, "p2");
+		var (_, lifecycle, _, challonge, _) = CreateService(context);
+
+		var result = await lifecycle.CreateChallongeBracketAsync(tournament.Id);
+
+		Assert.Equal(TournamentState.BracketCreated, result!.State);
+		Assert.Equal("ct-1", result.ChallongeTournamentId);
+		Assert.Equal(2, await context.TournamentChallongeParticipants.CountAsync(p => p.TournamentId == tournament.Id));
+		Assert.Empty(challonge.DeletedTournamentIds);
+	}
+
+	[Fact]
+	public async Task CreateChallongeBracketAsync_FailsAfterChallongeCreatedIt_DeletesTheOrphanAndLeavesTournamentUnlocked()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTournamentAsync(context, TournamentState.RegistrationClosed);
+		await SeedApprovedRegistrationAsync(context, tournament.Id, "p1");
+		await SeedApprovedRegistrationAsync(context, tournament.Id, "p2");
+		var (_, lifecycle, _, challonge, _) = CreateService(context);
+		challonge.FailBulkAdd = true;
+
+		await Assert.ThrowsAsync<ChallongeApiException>(() => lifecycle.CreateChallongeBracketAsync(tournament.Id));
+
+		// Otherwise every retry would leave another empty Challonge tournament behind.
+		Assert.Equal(["ct-1"], challonge.DeletedTournamentIds);
+		var reloaded = await context.Tournaments.SingleAsync(t => t.Id == tournament.Id);
+		Assert.Equal(TournamentState.RegistrationClosed, reloaded.State);
+		Assert.Null(reloaded.ChallongeTournamentId);
 	}
 
 	// Seeds a started solo tournament whose Challonge bracket has p1 (rank 1) and p2 (rank 2).

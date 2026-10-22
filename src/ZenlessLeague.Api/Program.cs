@@ -122,6 +122,7 @@ builder.Services.AddAuthorizationBuilder()
 	.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)));
 
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddSingleton<ISessionTokenIssuer>(new SessionTokenIssuer(sessionSigningKey, TimeProvider.System));
 
 builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
@@ -257,3 +258,7 @@ app.MapSeasonEndpoints();
 app.MapHub<TournamentHub>("/hubs/tournaments").RequireAuthorization();
 
 app.Run();
+
+// Makes the top-level-statements Program visible to WebApplicationFactory<Program> in the
+// integration tests, which boot this exact startup.
+public partial class Program;

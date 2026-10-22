@@ -11,14 +11,25 @@ public class FakeChallongeClient : IChallongeClient
 
 	public (string ChallongeTournamentId, string MatchId, string P1ParticipantId, string P2ParticipantId, bool P1Win, string LoserScore)? LastUpdateMatchResult { get; private set; }
 
-	public Task<ChallongeCreatedTournament> CreateTournamentAsync(string name, string tournamentType, string? description, DateTimeOffset startsAt, int? consolationMatchesTargetRank, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+	public List<string> CreatedTournamentIds { get; } = [];
+	public List<string> DeletedTournamentIds { get; } = [];
+
+	// Lets tests make bracket creation fail after Challonge already created the tournament.
+	public bool FailBulkAdd { get; set; }
+
+	public Task<ChallongeCreatedTournament> CreateTournamentAsync(string name, string tournamentType, string? description, DateTimeOffset startsAt, int? consolationMatchesTargetRank, CancellationToken ct = default)
+	{
+		var id = $"ct-{CreatedTournamentIds.Count + 1}";
+		CreatedTournamentIds.Add(id);
+		return Task.FromResult(new ChallongeCreatedTournament(id, $"https://challonge.com/{id}"));
+	}
 
 	public Task BulkAddParticipantsAsync(string challongeTournamentId, IReadOnlyList<(string Name, string Uid)> participants, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+		FailBulkAdd ? throw new ChallongeApiException(500, "simulated bulk_add failure") : Task.CompletedTask;
 
+	// Echoes the participants back in order with ids c1, c2, ... and the Uid as "misc", like Challonge does.
 	public Task<List<ChallongeParticipantResult>> RandomizeParticipantsAsync(string challongeTournamentId, IReadOnlyList<(string Name, string Uid)> participants, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+		Task.FromResult(participants.Select((p, i) => new ChallongeParticipantResult($"c{i + 1}", p.Uid, null)).ToList());
 
 	public Task<List<ChallongeMatchResult>> GetMatchesAsync(string challongeTournamentId, CancellationToken ct = default) =>
 		Task.FromResult(Matches);
@@ -75,6 +86,9 @@ public class FakeChallongeClient : IChallongeClient
 		return Task.CompletedTask;
 	}
 
-	public Task DeleteTournamentAsync(string challongeTournamentId, CancellationToken ct = default) =>
-		throw new NotSupportedException();
+	public Task DeleteTournamentAsync(string challongeTournamentId, CancellationToken ct = default)
+	{
+		DeletedTournamentIds.Add(challongeTournamentId);
+		return Task.CompletedTask;
+	}
 }

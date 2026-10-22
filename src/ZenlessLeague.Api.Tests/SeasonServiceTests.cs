@@ -21,7 +21,8 @@ public class SeasonServiceTests
 			new HistoryRepository(context),
 			TestDiscord.CreateRoleAssignmentService(context),
 			new SeasonTimerRepository(context),
-			NullLogger<SeasonService>.Instance);
+			NullLogger<SeasonService>.Instance,
+			new EfUnitOfWork(context));
 
 	[Fact]
 	public async Task FinalizeSeasonAsync_FoldsTournamentPointsIntoEloAndRecomputesTier()
@@ -59,7 +60,7 @@ public class SeasonServiceTests
 			Options.Create(new DiscordOptions { NewbieRoleId = "newbie", MidRoleId = "mid", HighRoleId = "high" }));
 		var service = new SeasonService(
 			new PlayerRepository(context), new ArchiveRepository(context), new HistoryRepository(context),
-			roleAssignment, new SeasonTimerRepository(context), NullLogger<SeasonService>.Instance);
+			roleAssignment, new SeasonTimerRepository(context), NullLogger<SeasonService>.Instance, new EfUnitOfWork(context));
 
 		var ex = await Assert.ThrowsAsync<SeasonValidationException>(() => service.FinalizeSeasonAsync());
 

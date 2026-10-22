@@ -41,7 +41,9 @@ public class TournamentLifecycleService(
 	IMatchService matchService,
 	IHistoryService historyService,
 	ITournamentDiscordResourcesService discordResourcesService,
-	ITournamentNotifier notifier) : ITournamentLifecycleService
+	ITournamentNotifier notifier,
+	IUnitOfWork unitOfWork,
+	ILogger<TournamentLifecycleService> logger) : ITournamentLifecycleService
 {
 	public async Task<TournamentDto?> CreateChallongeBracketAsync(Guid id, CancellationToken ct = default)
 	{
@@ -109,28 +111,51 @@ public class TournamentLifecycleService(
 			tournament.Name, tournamentType, tournament.Description, tournament.TournamentStartDate,
 			tournament.ConsolationMatchesTargetRank, ct);
 
-		await challongeClient.BulkAddParticipantsAsync(created.ChallongeTournamentId, participants, ct);
-		var randomized = await challongeClient.RandomizeParticipantsAsync(created.ChallongeTournamentId, participants, ct);
+		try
+		{
+			await challongeClient.BulkAddParticipantsAsync(created.ChallongeTournamentId, participants, ct);
+			var randomized = await challongeClient.RandomizeParticipantsAsync(created.ChallongeTournamentId, participants, ct);
 
-		await challongeParticipantRepository.AddRangeAsync(
-			randomized.Where(r => r.Misc is not null).Select(r => isTeamTournament
-				? new TournamentChallongeParticipant
-				{
-					TournamentId = id,
-					ChallongeParticipantId = r.ChallongeParticipantId,
-					TeamId = Guid.Parse(r.Misc!),
-				}
-				: new TournamentChallongeParticipant
-				{
-					TournamentId = id,
-					ChallongeParticipantId = r.ChallongeParticipantId,
-					PlayerId = Guid.Parse(r.Misc!),
-				}), ct);
+			await unitOfWork.InTransactionAsync(async () =>
+			{
+				await challongeParticipantRepository.AddRangeAsync(
+					randomized.Where(r => r.Misc is not null).Select(r => isTeamTournament
+						? new TournamentChallongeParticipant
+						{
+							TournamentId = id,
+							ChallongeParticipantId = r.ChallongeParticipantId,
+							TeamId = Guid.Parse(r.Misc!),
+						}
+						: new TournamentChallongeParticipant
+						{
+							TournamentId = id,
+							ChallongeParticipantId = r.ChallongeParticipantId,
+							PlayerId = Guid.Parse(r.Misc!),
+						}), ct);
 
-		tournament.State = TournamentState.BracketCreated;
-		tournament.ChallongeTournamentId = created.ChallongeTournamentId;
-		tournament.ChallongeTournamentUrl = created.ChallongeTournamentUrl;
-		await tournamentRepository.SaveChangesAsync(ct);
+				tournament.State = TournamentState.BracketCreated;
+				tournament.ChallongeTournamentId = created.ChallongeTournamentId;
+				tournament.ChallongeTournamentUrl = created.ChallongeTournamentUrl;
+				await tournamentRepository.SaveChangesAsync(ct);
+			}, ct);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			// Nothing local points at the new Challonge tournament yet, so a retry would create
+			// another one — delete this orphan first (best effort) so retries don't pile them up.
+			try
+			{
+				await challongeClient.DeleteTournamentAsync(created.ChallongeTournamentId, CancellationToken.None);
+			}
+			catch (Exception cleanupEx)
+			{
+				logger.LogError(cleanupEx, "Bracket creation for tournament {TournamentId} failed and the orphaned Challonge tournament {ChallongeTournamentId} couldn't be deleted — delete it in Challonge manually.",
+					id, created.ChallongeTournamentId);
+			}
+
+			throw;
+		}
+
 		await notifier.TournamentChangedAsync(id, ct);
 
 		return await ToDtoAsync(tournament, ct);
@@ -305,17 +330,24 @@ public class TournamentLifecycleService(
 				$"Failed to finish tournament after retries — tournament is still not complete, though its Discord role/channel may already be torn down from this attempt (safe to just retry). {ex.Message}");
 		}
 
-		tournament.State = TournamentState.Complete;
-		tournament.ChallongeWinnerId = winner!.ChallongeParticipantId;
-		tournament.WinnerId = isTeamTournament ? null : winnerParticipant!.PlayerId;
-		tournament.WinnerTeamId = isTeamTournament ? winnerParticipant!.TeamId : null;
-		await tournamentRepository.SaveChangesAsync(ct);
+		// Completing the tournament and awarding its rewards commit together: since Finish refuses an
+		// already-complete tournament, a partial commit (Complete but bonuses missing) could never be
+		// repaired by retrying. Two concurrent Finish calls conflict on Tournament.Version here.
+		await unitOfWork.InTransactionAsync(async () =>
+		{
+			tournament.State = TournamentState.Complete;
+			tournament.ChallongeWinnerId = winner!.ChallongeParticipantId;
+			tournament.WinnerId = isTeamTournament ? null : winnerParticipant!.PlayerId;
+			tournament.WinnerTeamId = isTeamTournament ? winnerParticipant!.TeamId : null;
+			await tournamentRepository.SaveChangesAsync(ct);
+
+			var isSeasonal = (tournament.OverrideEloChange ?? -1) == -1;
+
+			await IncrementPlayedCountsAsync(ourParticipants!, isSeasonal, ct);
+			await ApplyPrizeEloBonusAsync(challongeParticipants!, ourParticipantsByChallongeId!, isTeamTournament, isSeasonal, ct);
+		}, ct);
+
 		await notifier.TournamentChangedAsync(id, ct);
-
-		var isSeasonal = (tournament.OverrideEloChange ?? -1) == -1;
-
-		await IncrementPlayedCountsAsync(ourParticipants!, isSeasonal, ct);
-		await ApplyPrizeEloBonusAsync(challongeParticipants!, ourParticipantsByChallongeId!, isTeamTournament, isSeasonal, ct);
 
 		return await ToDtoAsync(tournament, ct);
 	}
@@ -483,78 +515,82 @@ public class TournamentLifecycleService(
 		var originalId = tournament.Id;
 
 		var division1Ids = groups[0].Select(r => r.PlayerId!.Value).ToHashSet();
-
-		tournament.Name = $"{originalName} A";
-		if (originalDiscordChannelName is not null)
-		{
-			tournament.DiscordChannelName = $"{originalDiscordChannelName}-A";
-		}
-
-		tournament.DivisionGroupId = originalId.ToString();
-		tournament.DivisionIndex = 1;
-		tournament.RegistrationEndDate = closedRegistrationEndDate;
-		tournament.State = TournamentState.RegistrationClosed;
-
-		foreach (var registration in approved.Where(r => !division1Ids.Contains(r.PlayerId!.Value)))
-		{
-			await registrationRepository.DeleteAsync(registration, ct);
-		}
-
-		await tournamentRepository.SaveChangesAsync(ct);
-
 		var divisionTournamentIds = new List<Guid> { originalId };
 
-		for (var i = 1; i < groups.Count; i++)
+		// One transaction for the whole split — otherwise a failure partway leaves the original
+		// renamed to "A" with the other divisions' players removed but their tournaments missing.
+		await unitOfWork.InTransactionAsync(async () =>
 		{
-			var divisionIndex = i + 1;
-			var divisionLetter = (char)('A' + i);
-
-			var newTournament = new Tournament
+			tournament.Name = $"{originalName} A";
+			if (originalDiscordChannelName is not null)
 			{
-				Id = Guid.NewGuid(),
-				Name = $"{originalName} {divisionLetter}",
-				Description = tournament.Description,
-				RegistrationStartDate = tournament.RegistrationStartDate,
-				RegistrationEndDate = closedRegistrationEndDate,
-				TournamentStartDate = tournament.TournamentStartDate,
-				TournamentEndDate = tournament.TournamentEndDate,
-				MinCost = tournament.MinCost,
-				MaxCost = tournament.MaxCost,
-				MinCharacters = tournament.MinCharacters,
-				MinTier = tournament.MinTier,
-				MaxTier = tournament.MaxTier,
-				RegistrationType = tournament.RegistrationType,
-				GameMode = tournament.GameMode,
-				BracketType = tournament.BracketType,
-				OverrideEloChange = tournament.OverrideEloChange,
-				ConsolationMatchesTargetRank = tournament.ConsolationMatchesTargetRank,
-				Visible = tournament.Visible,
-				DiscordRoleName = tournament.DiscordRoleName,
-				DiscordChannelName = originalDiscordChannelName is not null ? $"{originalDiscordChannelName}-{divisionLetter}" : null,
-				State = TournamentState.RegistrationClosed,
-				DivisionGroupId = originalId.ToString(),
-				DivisionIndex = divisionIndex,
-			};
+				tournament.DiscordChannelName = $"{originalDiscordChannelName}-A";
+			}
 
-			await tournamentRepository.CreateAsync(newTournament, ct);
-			divisionTournamentIds.Add(newTournament.Id);
+			tournament.DivisionGroupId = originalId.ToString();
+			tournament.DivisionIndex = 1;
+			tournament.RegistrationEndDate = closedRegistrationEndDate;
+			tournament.State = TournamentState.RegistrationClosed;
 
-			foreach (var registration in groups[i])
+			foreach (var registration in approved.Where(r => !division1Ids.Contains(r.PlayerId!.Value)))
 			{
-				await registrationRepository.CreateAsync(new TournamentRegistration
+				await registrationRepository.DeleteAsync(registration, ct);
+			}
+
+			await tournamentRepository.SaveChangesAsync(ct);
+
+			for (var i = 1; i < groups.Count; i++)
+			{
+				var divisionIndex = i + 1;
+				var divisionLetter = (char)('A' + i);
+
+				var newTournament = new Tournament
 				{
 					Id = Guid.NewGuid(),
-					TournamentId = newTournament.Id,
-					PlayerId = registration.PlayerId,
-					TeamId = registration.TeamId,
-					Player1Details = CloneDetails(registration.Player1Details),
-					Player2Details = registration.Player2Details is null ? null : CloneDetails(registration.Player2Details),
-					Approved = true,
-					RegisteredAt = registration.RegisteredAt,
-					UpdatedAt = DateTimeOffset.UtcNow,
-				}, ct);
+					Name = $"{originalName} {divisionLetter}",
+					Description = tournament.Description,
+					RegistrationStartDate = tournament.RegistrationStartDate,
+					RegistrationEndDate = closedRegistrationEndDate,
+					TournamentStartDate = tournament.TournamentStartDate,
+					TournamentEndDate = tournament.TournamentEndDate,
+					MinCost = tournament.MinCost,
+					MaxCost = tournament.MaxCost,
+					MinCharacters = tournament.MinCharacters,
+					MinTier = tournament.MinTier,
+					MaxTier = tournament.MaxTier,
+					RegistrationType = tournament.RegistrationType,
+					GameMode = tournament.GameMode,
+					BracketType = tournament.BracketType,
+					OverrideEloChange = tournament.OverrideEloChange,
+					ConsolationMatchesTargetRank = tournament.ConsolationMatchesTargetRank,
+					Visible = tournament.Visible,
+					DiscordRoleName = tournament.DiscordRoleName,
+					DiscordChannelName = originalDiscordChannelName is not null ? $"{originalDiscordChannelName}-{divisionLetter}" : null,
+					State = TournamentState.RegistrationClosed,
+					DivisionGroupId = originalId.ToString(),
+					DivisionIndex = divisionIndex,
+				};
+
+				await tournamentRepository.CreateAsync(newTournament, ct);
+				divisionTournamentIds.Add(newTournament.Id);
+
+				foreach (var registration in groups[i])
+				{
+					await registrationRepository.CreateAsync(new TournamentRegistration
+					{
+						Id = Guid.NewGuid(),
+						TournamentId = newTournament.Id,
+						PlayerId = registration.PlayerId,
+						TeamId = registration.TeamId,
+						Player1Details = CloneDetails(registration.Player1Details),
+						Player2Details = registration.Player2Details is null ? null : CloneDetails(registration.Player2Details),
+						Approved = true,
+						RegisteredAt = registration.RegisteredAt,
+						UpdatedAt = DateTimeOffset.UtcNow,
+					}, ct);
+				}
 			}
-		}
+		}, ct);
 
 		foreach (var divisionTournamentId in divisionTournamentIds)
 		{

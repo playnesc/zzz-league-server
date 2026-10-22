@@ -48,11 +48,20 @@ public class MatchService(
 	INexusClient nexusClient,
 	ITournamentRegistrationRepository registrationRepository,
 	ILogger<MatchService> logger,
-	IOptions<NexusOptions> nexusOptions) : IMatchService
+	IOptions<NexusOptions> nexusOptions,
+	IUnitOfWork unitOfWork) : IMatchService
 {
 	private bool ParseNexusResults => nexusOptions.Value.ParseResults;
 
 	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
+	{
+		var tournamentChanged = await ApplyChallongeSyncAsync(tournamentId, ct);
+		await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
+	}
+
+	// The sync itself, without notifying — so a caller running it inside a transaction can notify
+	// only once that has committed. Returns whether the tournament's own state changed.
+	private async Task<bool> ApplyChallongeSyncAsync(Guid tournamentId, CancellationToken ct)
 	{
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
 			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
@@ -97,7 +106,6 @@ public class MatchService(
 		}
 
 		await matchRepository.SaveChangesAsync(ct);
-		await notifier.MatchesSyncedAsync(tournamentId, ct);
 
 		// Only ever Started -> AwaitingReview. A resync of a finished tournament (refresh-games, or
 		// an admin correcting a result after Finish) must not knock Complete back to AwaitingReview,
@@ -106,6 +114,17 @@ public class MatchService(
 		{
 			tournament.State = TournamentState.AwaitingReview;
 			await tournamentRepository.SaveChangesAsync(ct);
+			return true;
+		}
+
+		return false;
+	}
+
+	private async Task NotifySyncedAsync(Guid tournamentId, bool tournamentChanged, CancellationToken ct)
+	{
+		await notifier.MatchesSyncedAsync(tournamentId, ct);
+		if (tournamentChanged)
+		{
 			await notifier.TournamentChangedAsync(tournamentId, ct);
 		}
 	}
@@ -170,19 +189,16 @@ public class MatchService(
 		if (match.P1ApprovedResult && match.P2ApprovedResult)
 		{
 			var p1Win = IsP1Win(tournament.GameMode, match.ResultP1!, match.ResultP2!);
-
-			var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
-				tournament, match, p1Win, "0",
-				match.ResultP1, match.ResultP2, techLoss: false, ct);
-
-			match.HistoryEntryId = historyEntryId;
-			match.HistoryEntryId2 = historyEntryId2;
-			match.State = "complete";
-			match.WinnerPlayerId = winnerPlayerId;
-			match.WinnerTeamId = winnerTeamId;
+			await ReportToChallongeAsync(tournament, match, p1Win, "0", ct);
+			var tournamentChanged = await RecordResultAsync(
+				tournament, match, p1Win, match.ResultP1, match.ResultP2, techLoss: false, beforeRecording: null, ct);
+			await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
+		}
+		else
+		{
+			await matchRepository.SaveChangesAsync(ct);
 		}
 
-		await matchRepository.SaveChangesAsync(ct);
 		await notifier.MatchChangedAsync(tournamentId, matchId, ct);
 		return (await ToDtosAsync([match], ct))[0];
 	}
@@ -302,21 +318,6 @@ public class MatchService(
 			p1Win = IsP1Win(tournament.GameMode, finalResultP1, finalResultP2);
 		}
 
-		var uploadedScreenshotUrl = request.ResultScreenshot is not null
-			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
-			: null;
-		var resultScreenshotUrl = uploadedScreenshotUrl ?? match.ResultScreenshotUrl;
-
-		if (match.HistoryEntryId is Guid oldEntryId)
-		{
-			await historyService.ReverseEntryAsync(oldEntryId, ct);
-		}
-
-		if (match.HistoryEntryId2 is Guid oldEntryId2)
-		{
-			await historyService.ReverseEntryAsync(oldEntryId2, ct);
-		}
-
 		if (isTeamMatch)
 		{
 			if (match.P1TeamId is null || match.P2TeamId is null)
@@ -329,24 +330,40 @@ public class MatchService(
 			throw new MatchValidationException("Match does not have two known participants yet.");
 		}
 
-		var (winnerPlayerId, winnerTeamId, historyEntryId, historyEntryId2) = await ReportAndRegisterAsync(
-			tournament, match, p1Win, techLoss ? "999" : "0",
-			finalResultP1, finalResultP2, techLoss, ct);
+		var uploadedScreenshotUrl = request.ResultScreenshot is not null
+			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
+			: null;
+		var resultScreenshotUrl = uploadedScreenshotUrl ?? match.ResultScreenshotUrl;
 
-		match.ResultP1 = finalResultP1;
-		match.ResultP2 = finalResultP2;
-		match.ResultScreenshotUrl = resultScreenshotUrl;
-		match.P1ApprovedResult = true;
-		match.P2ApprovedResult = true;
-		match.State = "complete";
-		match.WinnerPlayerId = winnerPlayerId;
-		match.WinnerTeamId = winnerTeamId;
-		match.TechLossPlayerId = techLoss && !isTeamMatch ? techLossPlayerId : null;
-		match.TechLossTeamId = techLoss && isTeamMatch ? request.TechLossTeamId : null;
-		match.HistoryEntryId = historyEntryId;
-		match.HistoryEntryId2 = historyEntryId2;
+		await ReportToChallongeAsync(tournament, match, p1Win, techLoss ? "999" : "0", ct);
 
-		await matchRepository.SaveChangesAsync(ct);
+		// Undoing the previous result (if any) is part of the same transaction as recording the new
+		// one, so a failure can't leave the match with its old result reversed but no new one applied.
+		var tournamentChanged = await RecordResultAsync(
+			tournament, match, p1Win, finalResultP1, finalResultP2, techLoss,
+			beforeRecording: async () =>
+			{
+				if (match.HistoryEntryId is Guid oldEntryId)
+				{
+					await historyService.ReverseEntryAsync(oldEntryId, ct);
+				}
+
+				if (match.HistoryEntryId2 is Guid oldEntryId2)
+				{
+					await historyService.ReverseEntryAsync(oldEntryId2, ct);
+				}
+
+				match.ResultP1 = finalResultP1;
+				match.ResultP2 = finalResultP2;
+				match.ResultScreenshotUrl = resultScreenshotUrl;
+				match.P1ApprovedResult = true;
+				match.P2ApprovedResult = true;
+				match.TechLossPlayerId = techLoss && !isTeamMatch ? techLossPlayerId : null;
+				match.TechLossTeamId = techLoss && isTeamMatch ? request.TechLossTeamId : null;
+			},
+			ct);
+
+		await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
 		await notifier.MatchChangedAsync(tournamentId, matchId, ct);
 		return (await ToDtosAsync([match], ct))[0];
 	}
@@ -360,14 +377,13 @@ public class MatchService(
 		return match is null ? null : (await ToDtosAsync([match], ct))[0];
 	}
 
-	// Shared tail of both approveResult.js and adminSetMatchResult.js: report the score to
-	// Challonge, resync the bracket, then register the Elo/history change. Branches on
-	// match.P1TeamId/P2TeamId (set XOR with P1PlayerId/P2PlayerId) to call the team- or
-	// solo-flavored history registration; a team match only ever populates WinnerTeamId/
-	// HistoryEntryId2, a solo match only ever populates WinnerPlayerId/leaves HistoryEntryId2 null.
-	private async Task<(Guid? WinnerPlayerId, Guid? WinnerTeamId, Guid HistoryEntryId, Guid? HistoryEntryId2)> ReportAndRegisterAsync(
-		Tournament tournament, TournamentMatch match, bool p1Win, string loserScore,
-		string? resultP1, string? resultP2, bool techLoss, CancellationToken ct)
+	// Finalizing a result is two steps, shared by player confirmation and the admin override:
+	//  1. ReportToChallongeAsync — the external, non-transactional part. Re-reporting the same score
+	//     is harmless, so if step 2 then fails the whole thing can simply be retried.
+	//  2. RecordResultAsync — every database write (resync, Elo/history, the match itself) in ONE
+	//     transaction: either the result is fully recorded or nothing changed and the match is still
+	//     unfinalized and retryable. Notifications are the caller's job, after this has committed.
+	private async Task ReportToChallongeAsync(Tournament tournament, TournamentMatch match, bool p1Win, string loserScore, CancellationToken ct)
 	{
 		if (tournament.ChallongeTournamentId is null)
 		{
@@ -405,28 +421,53 @@ public class MatchService(
 
 		await challongeClient.UpdateMatchResultAsync(
 			tournament.ChallongeTournamentId, match.ChallongeMatchId.ToString(), p1ChallongeId, p2ChallongeId, p1Win, loserScore, ct);
-
-		await SyncFromChallongeAsync(tournament.Id, ct);
-
-		// Tagged so history shows "tech loss" instead of whatever result was typed before it.
-		var kind = techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.None;
-		if (match.P1TeamId is Guid t1 && match.P2TeamId is Guid t2)
-		{
-			var (entry1, entry2) = await historyService.RegisterTeamMatchResultAsync(
-				t1, t2, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
-				resultP1, resultP2, techLoss, ct);
-
-			return (null, p1Win ? t1 : t2, entry1.Id, entry2.Id);
-		}
-		else
-		{
-			var entry = await historyService.RegisterMatchResultAsync(
-				match.P1PlayerId!.Value, match.P2PlayerId!.Value, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
-				resultP1, resultP2, techLoss, ct);
-
-			return (p1Win ? match.P1PlayerId : match.P2PlayerId, null, entry.Id, null);
-		}
 	}
+
+	// Returns whether the tournament's own state changed (for the caller's post-commit notify).
+	// `beforeRecording` runs first inside the same transaction (the admin path reverses the previous
+	// result there). Branches on match.P1TeamId/P2TeamId (set XOR with P1PlayerId/P2PlayerId): a team
+	// match only ever populates WinnerTeamId/HistoryEntryId2, a solo match only WinnerPlayerId.
+	private Task<bool> RecordResultAsync(
+		Tournament tournament, TournamentMatch match, bool p1Win, string? resultP1, string? resultP2, bool techLoss,
+		Func<Task>? beforeRecording, CancellationToken ct) =>
+		unitOfWork.InTransactionAsync(async () =>
+		{
+			if (beforeRecording is not null)
+			{
+				await beforeRecording();
+			}
+
+			var tournamentChanged = await ApplyChallongeSyncAsync(tournament.Id, ct);
+
+			// Tagged so history shows "tech loss" instead of whatever result was typed before it.
+			var kind = techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.None;
+			if (match.P1TeamId is Guid t1 && match.P2TeamId is Guid t2)
+			{
+				var (entry1, entry2) = await historyService.RegisterTeamMatchResultAsync(
+					t1, t2, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
+					resultP1, resultP2, techLoss, ct);
+
+				match.WinnerPlayerId = null;
+				match.WinnerTeamId = p1Win ? t1 : t2;
+				match.HistoryEntryId = entry1.Id;
+				match.HistoryEntryId2 = entry2.Id;
+			}
+			else
+			{
+				var entry = await historyService.RegisterMatchResultAsync(
+					match.P1PlayerId!.Value, match.P2PlayerId!.Value, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
+					resultP1, resultP2, techLoss, ct);
+
+				match.WinnerPlayerId = p1Win ? match.P1PlayerId : match.P2PlayerId;
+				match.WinnerTeamId = null;
+				match.HistoryEntryId = entry.Id;
+				match.HistoryEntryId2 = null;
+			}
+
+			match.State = "complete";
+			await matchRepository.SaveChangesAsync(ct);
+			return tournamentChanged;
+		}, ct);
 
 	// Team matches: typed result + screenshot, as before Nexus links existed. Any change to the
 	// result (or a replacement screenshot) resets both confirmations.
