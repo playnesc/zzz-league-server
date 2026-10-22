@@ -147,8 +147,11 @@ builder.Services.AddScoped<IHistoryRepository, HistoryRepository>();
 builder.Services.AddScoped<IHistoryService, HistoryService>();
 
 builder.Services.Configure<ChallongeOptions>(builder.Configuration.GetSection("Challonge"));
+// Challonge is slow on bulk operations (bulk_add/randomize for a full bracket), hence the longer
+// per-attempt timeout.
 builder.Services.AddHttpClient<IChallongeClient, ChallongeClient>(client =>
-	client.BaseAddress = new Uri("https://api.challonge.com/v2.1/"));
+	client.BaseAddress = new Uri("https://api.challonge.com/v2.1/"))
+	.AddThirdPartyResilience(TimeSpan.FromSeconds(20), isNonIdempotent: ChallongeClient.IsNonIdempotent);
 
 builder.Services.Configure<NexusOptions>(builder.Configuration.GetSection("Nexus"));
 builder.Services.AddHttpClient<INexusClient, NexusClient>(client =>
@@ -165,13 +168,18 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<ITournamentNotifier, TournamentNotifier>();
 
 builder.Services.Configure<DiscordOptions>(builder.Configuration.GetSection("Discord"));
+// 429s are left to DiscordClient's own Retry-After loop (which also covers POSTs — a 429 means the
+// request wasn't processed), so the pipeline doesn't retry them a second time on top.
 builder.Services.AddHttpClient<IDiscordClient, DiscordClient>(client =>
-	client.BaseAddress = new Uri("https://discord.com/api/v10/"));
+	client.BaseAddress = new Uri("https://discord.com/api/v10/"))
+	.AddThirdPartyResilience(TimeSpan.FromSeconds(10), retryOnTooManyRequests: false);
 
 // Separate client/base address from IDiscordClient above — the OAuth token endpoint is
-// unversioned (discord.com/api/oauth2/token), unlike the bot API's /api/v10/... surface.
+// unversioned (discord.com/api/oauth2/token), unlike the bot API's /api/v10/... surface. The token
+// exchange is a POST (single-use code) and so never retried; the /users/@me GET is.
 builder.Services.AddHttpClient<IDiscordOAuthClient, DiscordOAuthClient>(client =>
-	client.BaseAddress = new Uri("https://discord.com/api/"));
+	client.BaseAddress = new Uri("https://discord.com/api/"))
+	.AddThirdPartyResilience(TimeSpan.FromSeconds(10));
 
 builder.Services.AddScoped<IDiscordRoleAssignmentService, DiscordRoleAssignmentService>();
 builder.Services.AddScoped<ITournamentDiscordResourcesService, TournamentDiscordResourcesService>();
@@ -192,7 +200,9 @@ builder.Services.AddSingleton(_ => new Lazy<GoogleCredential>(() =>
 #pragma warning restore CS0618
 }));
 builder.Services.Configure<FirebaseStorageOptions>(builder.Configuration.GetSection("Firebase"));
-builder.Services.AddHttpClient<IFirebaseStorageClient, FirebaseStorageClient>();
+// Uploads are POSTs (not retried); the list/delete calls around them are.
+builder.Services.AddHttpClient<IFirebaseStorageClient, FirebaseStorageClient>()
+	.AddThirdPartyResilience(TimeSpan.FromSeconds(20));
 
 builder.Services.AddScoped<IArchiveRepository, ArchiveRepository>();
 builder.Services.AddScoped<ISeasonTimerRepository, SeasonTimerRepository>();

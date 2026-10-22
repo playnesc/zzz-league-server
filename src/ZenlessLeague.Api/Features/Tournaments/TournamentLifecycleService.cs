@@ -219,7 +219,10 @@ public class TournamentLifecycleService(
 	// re-throwing the last failure once attempts are exhausted. Shared by Start/Finish/Delete —
 	// each wraps its external Challonge/Discord calls in this so the whole sequence can be
 	// retried as one unit on a transient failure without double-creating/double-deleting anything
-	// (every step it wraps is individually idempotent).
+	// (every step it wraps is individually idempotent). Individual HTTP calls already retry their
+	// own transient failures (see ThirdPartyHttpResilience); this covers the sequence as a whole.
+	// ApiExceptions (validation/state errors, e.g. "no participant with final_rank 1") are never
+	// retried — they'd fail identically every time.
 	private static async Task RetryAsync(Func<Task> action, CancellationToken ct)
 	{
 		for (var attempt = 0; ; attempt++)
@@ -229,7 +232,7 @@ public class TournamentLifecycleService(
 				await action();
 				return;
 			}
-			catch (Exception) when (attempt < RetryDelays.Length && !ct.IsCancellationRequested)
+			catch (Exception ex) when (ex is not ApiException && attempt < RetryDelays.Length && !ct.IsCancellationRequested)
 			{
 				await Task.Delay(RetryDelays[attempt], ct);
 			}

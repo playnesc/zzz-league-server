@@ -50,6 +50,11 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+	// For the HTTP retry policy (see ThirdPartyHttpResilience): a PUT that must still never be
+	// re-sent — repeating randomize reshuffles the seeding instead of being a no-op.
+	public static bool IsNonIdempotent(HttpRequestMessage request) =>
+		request.Method == HttpMethod.Put && request.RequestUri?.AbsolutePath.EndsWith("/randomize.json", StringComparison.Ordinal) == true;
+
 	public async Task<ChallongeCreatedTournament> CreateTournamentAsync(
 		string name, string tournamentType, string? description, DateTimeOffset startsAt,
 		int? consolationMatchesTargetRank, CancellationToken ct = default)
@@ -111,12 +116,14 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 		return body.Data.Select(d => new ChallongeParticipantResult(d.Id, d.Attributes.Misc, d.Attributes.FinalRank)).ToList();
 	}
 
+	// Follows links.next like GetAllParticipantsAsync — a page-limited response would otherwise
+	// silently drop matches (and make SyncFromChallongeAsync think the bracket was fully played).
+	// A single-page response simply has no next link.
 	public async Task<List<ChallongeMatchResult>> GetMatchesAsync(string challongeTournamentId, CancellationToken ct = default)
 	{
-		var response = await SendAsync(HttpMethod.Get, $"tournaments/{challongeTournamentId}/matches.json", null, ct);
-		var body = await ReadAsync<ChallongeMatchesResponse>(response, ct);
+		var pages = await GetAllPagesAsync<ChallongeMatchData>($"tournaments/{challongeTournamentId}/matches.json", d => d.Id, ct);
 
-		return body.Data.Select(d =>
+		return pages.Select(d =>
 		{
 			var pp = d.Attributes.PointsByParticipant ?? [];
 			return new ChallongeMatchResult(
@@ -129,35 +136,52 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 
 	public async Task<List<ChallongeParticipantResult>> GetAllParticipantsAsync(string challongeTournamentId, CancellationToken ct = default)
 	{
-		var seen = new Dictionary<string, ChallongeParticipantResult>();
-		string? url = $"tournaments/{challongeTournamentId}/participants.json";
+		var pages = await GetAllPagesAsync<ChallongeParticipantData>($"tournaments/{challongeTournamentId}/participants.json", d => d.Id, ct);
+		return pages.Select(d => new ChallongeParticipantResult(d.Id, d.Attributes.Misc, d.Attributes.FinalRank)).ToList();
+	}
+
+	// Walks a paginated list endpoint, de-duplicating by id (first occurrence wins, original order
+	// kept). Stops at an empty page, once meta.count items are collected, when a page adds nothing
+	// new (guards against a next link that loops), or when there's no next link. A next link is only
+	// followed on Challonge's own host, since every request carries the API key.
+	private async Task<List<T>> GetAllPagesAsync<T>(string firstPath, Func<T, string> idOf, CancellationToken ct)
+	{
+		var items = new List<T>();
+		var seenIds = new HashSet<string>();
+		string? url = firstPath;
 		var firstPage = true;
 
 		while (url is not null)
 		{
 			var response = await SendAsync(HttpMethod.Get, url, null, ct, absoluteUrl: !firstPage);
 			firstPage = false;
-			var body = await ReadAsync<ChallongeParticipantsPageResponse>(response, ct);
-			if (body.Data.Count == 0)
+			var body = await ReadAsync<ChallongePageResponse<T>>(response, ct);
+
+			var added = 0;
+			foreach (var item in body.Data)
+			{
+				if (seenIds.Add(idOf(item)))
+				{
+					items.Add(item);
+					added++;
+				}
+			}
+
+			if (added == 0 || (body.Meta?.Count is int count && items.Count >= count))
 			{
 				break;
 			}
 
-			foreach (var d in body.Data)
-			{
-				seen[d.Id] = new ChallongeParticipantResult(d.Id, d.Attributes.Misc, d.Attributes.FinalRank);
-			}
-
-			if (body.Meta?.Count is int count && seen.Count >= count)
-			{
-				break;
-			}
-
-			url = body.Links?.Next;
+			url = body.Links?.Next is string next && IsChallongeUrl(next) ? next : null;
 		}
 
-		return seen.Values.ToList();
+		return items;
 	}
+
+	private bool IsChallongeUrl(string url) =>
+		Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+		uri.Scheme == Uri.UriSchemeHttps &&
+		string.Equals(uri.Host, httpClient.BaseAddress?.Host, StringComparison.OrdinalIgnoreCase);
 
 	public async Task<bool> StartAsync(string challongeTournamentId, CancellationToken ct = default)
 	{
@@ -334,13 +358,13 @@ public class ChallongeClient(HttpClient httpClient, IOptions<ChallongeOptions> o
 	private record ChallongeTournamentAttributes([property: JsonPropertyName("full_challonge_url")] string? FullChallongeUrl);
 
 	private record ChallongeParticipantsResponse(List<ChallongeParticipantData> Data);
-	private record ChallongeParticipantsPageResponse(List<ChallongeParticipantData> Data, ChallongeLinks? Links, ChallongeMeta? Meta);
 	private record ChallongeParticipantData(string Id, ChallongeParticipantAttributes Attributes);
 	private record ChallongeParticipantAttributes(string? Misc, [property: JsonPropertyName("final_rank")] int? FinalRank);
+
+	private record ChallongePageResponse<T>(List<T> Data, ChallongeLinks? Links, ChallongeMeta? Meta);
 	private record ChallongeLinks(string? Next);
 	private record ChallongeMeta(int? Count);
 
-	private record ChallongeMatchesResponse(List<ChallongeMatchData> Data);
 	private record ChallongeMatchData(string Id, ChallongeMatchAttributes Attributes);
 	private record ChallongeMatchAttributes(
 		int Round,
