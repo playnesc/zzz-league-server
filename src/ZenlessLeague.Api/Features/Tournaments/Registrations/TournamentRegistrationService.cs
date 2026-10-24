@@ -79,7 +79,7 @@ public class TournamentRegistrationService(
 			await registrationRepository.SaveChangesAsync(ct);
 		}
 
-		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registration.Id);
 
 		return ToDto(registration, player.Uid, includeSensitive: true);
 	}
@@ -142,7 +142,7 @@ public class TournamentRegistrationService(
 			await registrationRepository.SaveChangesAsync(ct);
 		}
 
-		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registration.Id);
 		return ToDto(registration, playerUid: null, includeSensitive: true);
 	}
 
@@ -233,7 +233,7 @@ public class TournamentRegistrationService(
 		};
 
 		await registrationRepository.CreateAsync(registration, ct);
-		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registration.Id);
 		return ToDto(registration, player.Uid, includeSensitive: true);
 	}
 
@@ -282,7 +282,7 @@ public class TournamentRegistrationService(
 		};
 
 		await registrationRepository.CreateAsync(registration, ct);
-		await notifier.RegistrationChangedAsync(tournamentId, registration.Id, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registration.Id);
 		return ToDto(registration, playerUid: null, includeSensitive: true);
 	}
 
@@ -327,7 +327,7 @@ public class TournamentRegistrationService(
 		registration.Approved = approved;
 		registration.UpdatedAt = DateTimeOffset.UtcNow;
 		await registrationRepository.SaveChangesAsync(ct);
-		await notifier.RegistrationChangedAsync(tournamentId, registrationId, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registrationId);
 
 		var playerUid = registration.PlayerId is Guid pid ? (await playerRepository.GetByIdAsync(pid, ct))?.Uid : null;
 		return ToDto(registration, playerUid, includeSensitive: true);
@@ -361,7 +361,7 @@ public class TournamentRegistrationService(
 
 		var registrationId = registration.Id;
 		await registrationRepository.DeleteAsync(registration, ct);
-		await notifier.RegistrationChangedAsync(tournamentId, registrationId, ct);
+		await notifier.RegistrationChangedAsync(tournamentId, registrationId);
 		return true;
 	}
 

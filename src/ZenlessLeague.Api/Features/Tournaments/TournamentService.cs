@@ -48,7 +48,7 @@ public class TournamentService(
 			DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name"),
 		}, ct);
 
-		await notifier.TournamentChangedAsync(tournament.Id, ct);
+		await notifier.TournamentChangedAsync(tournament.Id);
 		return await ToDtoAsync(tournament, ct);
 	}
 
@@ -103,7 +103,7 @@ public class TournamentService(
 		tournament.DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name");
 
 		await tournamentRepository.SaveChangesAsync(ct);
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 		return await ToDtoAsync(tournament, ct);
 	}
 
@@ -122,7 +122,7 @@ public class TournamentService(
 
 		tournament.State = TournamentState.RegistrationClosed;
 		await tournamentRepository.SaveChangesAsync(ct);
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 		return await ToDtoAsync(tournament, ct);
 	}
 

@@ -157,7 +157,7 @@ public class TournamentLifecycleService(
 			throw;
 		}
 
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 
 		return await ToDtoAsync(tournament, ct);
 	}
@@ -221,7 +221,7 @@ public class TournamentLifecycleService(
 		}
 
 		await tournamentRepository.SaveChangesAsync(ct);
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 
 		var now = DateTimeOffset.UtcNow;
 		var participants = await challongeParticipantRepository.ListByTournamentAsync(id, ct);
@@ -348,7 +348,7 @@ public class TournamentLifecycleService(
 			await ApplyPrizeEloBonusAsync(challongeParticipants!, ourParticipantsByChallongeId!, isTeamTournament, isSeasonal, ct);
 		}, ct);
 
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 
 		return await ToDtoAsync(tournament, ct);
 	}
@@ -455,7 +455,7 @@ public class TournamentLifecycleService(
 		}
 
 		await tournamentRepository.DeleteAsync(id, ct);
-		await notifier.TournamentChangedAsync(id, ct);
+		await notifier.TournamentChangedAsync(id);
 
 		return true;
 	}
@@ -595,7 +595,7 @@ public class TournamentLifecycleService(
 
 		foreach (var divisionTournamentId in divisionTournamentIds)
 		{
-			await notifier.TournamentChangedAsync(divisionTournamentId, ct);
+			await notifier.TournamentChangedAsync(divisionTournamentId);
 		}
 
 		return new SplitTournamentResult(divisionTournamentIds);

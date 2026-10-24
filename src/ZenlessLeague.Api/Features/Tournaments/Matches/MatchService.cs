@@ -56,15 +56,15 @@ public class MatchService(
 	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
 	{
 		var tournamentChanged = await challongeSync.SyncAsync(tournamentId, ct);
-		await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
+		await NotifySyncedAsync(tournamentId, tournamentChanged);
 	}
 
-	private async Task NotifySyncedAsync(Guid tournamentId, bool tournamentChanged, CancellationToken ct)
+	private async Task NotifySyncedAsync(Guid tournamentId, bool tournamentChanged)
 	{
-		await notifier.MatchesSyncedAsync(tournamentId, ct);
+		await notifier.MatchesSyncedAsync(tournamentId);
 		if (tournamentChanged)
 		{
-			await notifier.TournamentChangedAsync(tournamentId, ct);
+			await notifier.TournamentChangedAsync(tournamentId);
 		}
 	}
 
@@ -131,14 +131,14 @@ public class MatchService(
 			await challongeSync.ReportResultAsync(tournament, match, p1Win, "0", ct);
 			var tournamentChanged = await RecordResultAsync(
 				tournament, match, p1Win, match.ResultP1, match.ResultP2, techLoss: false, beforeRecording: null, ct);
-			await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
+			await NotifySyncedAsync(tournamentId, tournamentChanged);
 		}
 		else
 		{
 			await matchRepository.SaveChangesAsync(ct);
 		}
 
-		await notifier.MatchChangedAsync(tournamentId, matchId, ct);
+		await notifier.MatchChangedAsync(tournamentId, matchId);
 		return (await ToDtosAsync([match], ct))[0];
 	}
 
@@ -302,8 +302,8 @@ public class MatchService(
 			},
 			ct);
 
-		await NotifySyncedAsync(tournamentId, tournamentChanged, ct);
-		await notifier.MatchChangedAsync(tournamentId, matchId, ct);
+		await NotifySyncedAsync(tournamentId, tournamentChanged);
+		await notifier.MatchChangedAsync(tournamentId, matchId);
 		return (await ToDtosAsync([match], ct))[0];
 	}
 

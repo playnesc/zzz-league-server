@@ -11,25 +11,25 @@ public class FakeTournamentNotifier : ITournamentNotifier
 	public List<(Guid TournamentId, Guid MatchId)> MatchChanged { get; } = [];
 	public List<Guid> MatchesSynced { get; } = [];
 
-	public Task TournamentChangedAsync(Guid tournamentId, CancellationToken ct = default)
+	public Task TournamentChangedAsync(Guid tournamentId)
 	{
 		TournamentChanged.Add(tournamentId);
 		return Task.CompletedTask;
 	}
 
-	public Task RegistrationChangedAsync(Guid tournamentId, Guid registrationId, CancellationToken ct = default)
+	public Task RegistrationChangedAsync(Guid tournamentId, Guid registrationId)
 	{
 		RegistrationChanged.Add((tournamentId, registrationId));
 		return Task.CompletedTask;
 	}
 
-	public Task MatchChangedAsync(Guid tournamentId, Guid matchId, CancellationToken ct = default)
+	public Task MatchChangedAsync(Guid tournamentId, Guid matchId)
 	{
 		MatchChanged.Add((tournamentId, matchId));
 		return Task.CompletedTask;
 	}
 
-	public Task MatchesSyncedAsync(Guid tournamentId, CancellationToken ct = default)
+	public Task MatchesSyncedAsync(Guid tournamentId)
 	{
 		MatchesSynced.Add(tournamentId);
 		return Task.CompletedTask;
