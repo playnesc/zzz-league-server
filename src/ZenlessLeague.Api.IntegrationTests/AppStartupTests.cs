@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.Storage;
-using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Infrastructure.Persistence;
 
 namespace ZenlessLeague.Api.IntegrationTests;
@@ -41,7 +40,6 @@ public class AppStartupTests(PostgresFixture postgres)
 
 		// Typed clients build their resilience pipelines (whose options are only validated then).
 		using var scope = factory.Services.CreateScope();
-		Assert.NotNull(scope.ServiceProvider.GetRequiredService<IChallongeClient>());
 		Assert.NotNull(scope.ServiceProvider.GetRequiredService<IDiscordClient>());
 		Assert.NotNull(scope.ServiceProvider.GetRequiredService<IDiscordOAuthClient>());
 		Assert.NotNull(scope.ServiceProvider.GetRequiredService<IFirebaseStorageClient>());

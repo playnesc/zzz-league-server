@@ -9,7 +9,7 @@ public static class TournamentStateMachine
 	public static bool HasStarted(TournamentState state) =>
 		state is TournamentState.Started or TournamentState.AwaitingReview or TournamentState.Complete;
 
-	// True once the Challonge bracket exists (participants locked in), whether or not the
+	// True once the bracket exists (participants locked in), whether or not the
 	// tournament itself has started yet — registration/roster changes are blocked from here on.
 	public static bool IsLocked(TournamentState state) => IsBracketCreated(state) || HasStarted(state);
 }

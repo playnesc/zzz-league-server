@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
 
 namespace ZenlessLeague.Api.Features.Tournaments;
 
@@ -41,20 +42,24 @@ public static class TournamentEndpoints
 		group.MapPost("/{id:guid}/close-registration", async (Guid id, ITournamentService service, CancellationToken ct) =>
 			await Handle(service.CloseRegistrationAsync(id, ct))).RequireAuthorization("Admin");
 
-		group.MapPost("/{id:guid}/challonge-bracket", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
-			await Handle(service.CreateChallongeBracketAsync(id, ct))).RequireAuthorization("Admin");
+		group.MapPost("/{id:guid}/bracket", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
+			await Handle(service.CreateBracketAsync(id, ct))).RequireAuthorization("Admin");
+
+		// 404 until the bracket exists (and for tournaments that were run on Challonge).
+		group.MapGet("/{id:guid}/bracket", async (
+			Guid id, HttpContext http, IAuthorizationService authorization, ITournamentRepository tournaments, IBracketService service, CancellationToken ct) =>
+			await TournamentVisibility.CanSeeBracketAsync(id, http.User, tournaments, authorization, ct)
+				? await HandleBracket(service.GetAsync(id, ct))
+				: Results.NotFound()).RequireVisibleTournament();
+
+		group.MapPut("/{id:guid}/bracket/layout", async (Guid id, SaveBracketLayoutRequest request, IBracketService service, CancellationToken ct) =>
+			await HandleBracket(service.SaveLayoutAsync(id, request, ct))).RequireAuthorization("Admin");
 
 		group.MapPost("/{id:guid}/start", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 			await Handle(service.StartAsync(id, ct))).RequireAuthorization("Admin");
 
 		group.MapPost("/{id:guid}/finish", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 			await Handle(service.FinishAsync(id, ct))).RequireAuthorization("Admin");
-
-		group.MapPost("/{id:guid}/refresh-games", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
-		{
-			await service.RefreshGamesAsync(id, ct);
-			return Results.NoContent();
-		}).RequireAuthorization("Admin");
 
 		group.MapPost("/{id:guid}/increment-count", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 		{
@@ -96,5 +101,11 @@ public static class TournamentEndpoints
 	{
 		var tournament = await action;
 		return tournament is null ? Results.NotFound() : Results.Ok(tournament);
+	}
+
+	private static async Task<IResult> HandleBracket(Task<BracketDto?> action)
+	{
+		var bracket = await action;
+		return bracket is null ? Results.NotFound() : Results.Ok(bracket);
 	}
 }

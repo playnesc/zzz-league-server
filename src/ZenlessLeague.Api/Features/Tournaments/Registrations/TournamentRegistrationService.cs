@@ -203,7 +203,7 @@ public class TournamentRegistrationService(
 			return null;
 		}
 
-		if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+		if (TournamentStateMachine.IsLocked(tournament.State))
 		{
 			throw new TournamentValidationException("Tournament has already started.");
 		}
@@ -245,7 +245,7 @@ public class TournamentRegistrationService(
 			return null;
 		}
 
-		if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+		if (TournamentStateMachine.IsLocked(tournament.State))
 		{
 			throw new TournamentValidationException("Tournament has already started.");
 		}
@@ -341,7 +341,7 @@ public class TournamentRegistrationService(
 			return null;
 		}
 
-		if (TournamentStateMachine.IsLocked(tournament.State) || tournament.ChallongeTournamentId is not null)
+		if (TournamentStateMachine.IsLocked(tournament.State))
 		{
 			throw new TournamentValidationException("Tournament has already started.");
 		}

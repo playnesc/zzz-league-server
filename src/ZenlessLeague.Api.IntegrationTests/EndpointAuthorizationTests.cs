@@ -14,6 +14,8 @@ using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
+using ZenlessLeague.Api.Features.Tournaments.Matches;
 using ZenlessLeague.Api.Infrastructure.Http;
 using ZenlessLeague.Api.Tests;
 
@@ -87,10 +89,11 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 		["PUT /api/tournaments/{id:guid}"] = Admin,
 		["DELETE /api/tournaments/{id:guid}"] = Admin,
 		["POST /api/tournaments/{id:guid}/close-registration"] = Admin,
-		["POST /api/tournaments/{id:guid}/challonge-bracket"] = Admin,
+		["POST /api/tournaments/{id:guid}/bracket"] = Admin,
+		["GET /api/tournaments/{id:guid}/bracket"] = Anonymous,
+		["PUT /api/tournaments/{id:guid}/bracket/layout"] = Admin,
 		["POST /api/tournaments/{id:guid}/start"] = Admin,
 		["POST /api/tournaments/{id:guid}/finish"] = Admin,
-		["POST /api/tournaments/{id:guid}/refresh-games"] = Admin,
 		["POST /api/tournaments/{id:guid}/increment-count"] = Admin,
 		["POST /api/tournaments/{id:guid}/increment-seasonal-count"] = Admin,
 		["POST /api/tournaments/{id:guid}/split"] = Admin,
@@ -324,6 +327,54 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 
 		var listed = await (await GetAsync(client, "/api/tournaments", "player")).Content.ReadFromJsonAsync<List<TournamentListEntry>>();
 		Assert.DoesNotContain(listed!, t => t.Id == tournamentId);
+	}
+
+	[Fact]
+	public async Task UnstartedBracket_OnlyAdminsSeeItAndItsMatches()
+	{
+		await SeedPlayersAsync(("player", PlayerRole.Player), ("moderator", PlayerRole.Moderator), ("admin", PlayerRole.Admin));
+		var tournamentId = Guid.NewGuid();
+		var matchId = Guid.NewGuid();
+		await using (var db = postgres.CreateContext(database))
+		{
+			var p1 = db.Players.Single(p => p.Uid == "player");
+			var p2 = db.Players.Single(p => p.Uid == "moderator");
+			db.Tournaments.Add(new Tournament { Id = tournamentId, Name = "Cup", State = TournamentState.BracketCreated, BracketType = "single elimination" });
+			db.TournamentParticipants.AddRange(
+				new TournamentParticipant { Id = Guid.NewGuid(), TournamentId = tournamentId, PlayerId = p1.Id, Slot = 0 },
+				new TournamentParticipant { Id = Guid.NewGuid(), TournamentId = tournamentId, PlayerId = p2.Id, Slot = 1 });
+			db.TournamentMatches.Add(new TournamentMatch
+			{
+				Id = matchId, TournamentId = tournamentId, Section = BracketSection.Winners, Round = 1, Position = 0, Number = 1,
+				P1PlayerId = p1.Id, P2PlayerId = p2.Id, State = BracketService.Open,
+			});
+			await db.SaveChangesAsync();
+		}
+
+		var client = factory.CreateClient();
+		async Task<int> MatchCountAsync(string? uid) =>
+			(await (await GetAsync(client, $"/api/tournaments/{tournamentId}/matches", uid)).Content.ReadFromJsonAsync<List<TournamentListEntry>>())!.Count;
+
+		foreach (var uid in new[] { null, "player", "moderator" })
+		{
+			Assert.Equal(0, await MatchCountAsync(uid));
+			Assert.Equal(HttpStatusCode.NotFound, (await GetAsync(client, $"/api/tournaments/{tournamentId}/matches/{matchId}", uid)).StatusCode);
+			Assert.Equal(HttpStatusCode.NotFound, (await GetAsync(client, $"/api/tournaments/{tournamentId}/bracket", uid)).StatusCode);
+		}
+
+		Assert.Equal(1, await MatchCountAsync("admin"));
+		Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, $"/api/tournaments/{tournamentId}/bracket", "admin")).StatusCode);
+
+		// From Start on, everyone sees it.
+		await using (var db = postgres.CreateContext(database))
+		{
+			db.Tournaments.Single(t => t.Id == tournamentId).State = TournamentState.Started;
+			await db.SaveChangesAsync();
+		}
+
+		Assert.Equal(1, await MatchCountAsync(null));
+		Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, $"/api/tournaments/{tournamentId}/bracket", null)).StatusCode);
+		Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, $"/api/tournaments/{tournamentId}/matches/{matchId}", null)).StatusCode);
 	}
 
 	private sealed record TournamentListEntry(Guid Id);

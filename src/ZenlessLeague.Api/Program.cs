@@ -93,7 +93,7 @@ var app = builder.Build();
 // deployment missing one would otherwise only find out when that feature is first exercised.
 if (!app.Environment.IsDevelopment())
 {
-	string[] requiredSettings = ["Challonge:ApiKey", "Discord:BotToken", "Discord:GuildId", "Discord:ClientId", "Discord:ClientSecret", "Firebase:StorageBucket"];
+	string[] requiredSettings = ["Discord:BotToken", "Discord:GuildId", "Discord:ClientId", "Discord:ClientSecret", "Firebase:StorageBucket"];
 	var missing = requiredSettings.Where(key => string.IsNullOrWhiteSpace(app.Configuration[key])).ToList();
 	if (string.IsNullOrWhiteSpace(app.Configuration["Firebase:CredentialsJson"]) && string.IsNullOrWhiteSpace(app.Configuration["Firebase:CredentialsPath"]))
 	{

@@ -1,3 +1,5 @@
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
+
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
 // Solo matches, NexusOptions.ParseResults on: the result comes from NexusResultUrl
@@ -15,6 +17,8 @@ public record SubmitPlayerResultRequest(
 
 // Moderator-typed ResultP1/ResultP2 always win; a NexusResultUrl is stored with the match and,
 // when NexusOptions.ParseResults is on, fills in whichever result the moderator left empty.
+// ConfirmReset: the moderator has seen (from a 428 response) which later matches changing this
+// match's winner will reset, and wants it done.
 public record SetAdminResultRequest(
 	string? ResultP1 = null,
 	string? ResultP2 = null,
@@ -22,7 +26,8 @@ public record SetAdminResultRequest(
 	string? TechLossPlayerId = null,
 	Guid? TechLossTeamId = null,
 	string? NexusResultUrl = null,
-	string? NexusP1Side = null);
+	string? NexusP1Side = null,
+	bool ConfirmReset = false);
 
 public record NexusPreviewRequest(string Url, string? NexusP1Side = null);
 
@@ -46,10 +51,19 @@ public record NexusPreviewDto(
 	bool IsTie,
 	List<NexusMissingDto> Missing);
 
+// Number..LoserToSlot place the match in the bracket (see TournamentMatch); all null for matches
+// of tournaments that were run on Challonge.
 public record TournamentMatchDto(
 	Guid Id,
 	Guid TournamentId,
-	long ChallongeMatchId,
+	int? Number,
+	BracketSection? Section,
+	int? Round,
+	int? Position,
+	Guid? WinnerToMatchId,
+	int? WinnerToSlot,
+	Guid? LoserToMatchId,
+	int? LoserToSlot,
 	string? P1PlayerId,
 	string? P2PlayerId,
 	Guid? P1TeamId,

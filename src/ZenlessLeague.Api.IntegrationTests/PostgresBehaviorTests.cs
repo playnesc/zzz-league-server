@@ -10,6 +10,7 @@ using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 using ZenlessLeague.Api.Infrastructure.Errors;
 using ZenlessLeague.Api.Infrastructure.Persistence;
@@ -103,7 +104,7 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 			var tournament = new Tournament { Id = Guid.NewGuid(), Name = "2v2 Cup", RegistrationType = TournamentRegistrationType.Team };
 			seed.Teams.Add(team);
 			seed.Tournaments.Add(tournament);
-			seed.TournamentChallongeParticipants.Add(new TournamentChallongeParticipant { TournamentId = tournament.Id, ChallongeParticipantId = "c1", TeamId = team.Id });
+			seed.TournamentParticipants.Add(new TournamentParticipant { Id = Guid.NewGuid(), TournamentId = tournament.Id, TeamId = team.Id, Slot = 0 });
 			await seed.SaveChangesAsync();
 			teamId = team.Id;
 		}
@@ -127,9 +128,14 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 		var p2 = TestPlayers.Create(db, "p2");
 		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Cup" };
 		db.Tournaments.Add(tournament);
-		var match = new TournamentMatch { Id = Guid.NewGuid(), TournamentId = tournament.Id, ChallongeMatchId = 1, P1PlayerId = p1.Id, P2PlayerId = p2.Id, State = "complete" };
-		db.TournamentMatches.Add(match);
 		await db.SaveChangesAsync();
+		// With SQL: the current model's TournamentMatch has columns this older schema doesn't.
+		var matchId = Guid.NewGuid();
+		await db.Database.ExecuteSqlAsync(
+			$"""
+			INSERT INTO "TournamentMatches" ("Id", "TournamentId", "ChallongeMatchId", "P1PlayerId", "P2PlayerId", "State", "P1ApprovedResult", "P2ApprovedResult")
+			VALUES ({matchId}, {tournament.Id}, 1, {p1.Id}, {p2.Id}, 'complete', false, false)
+			""");
 
 		// History rows as they existed before the column (inserted with SQL — the current model
 		// already has P1Won, which this schema doesn't).
@@ -139,7 +145,7 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 		var unlinkedTie = await InsertHistoryAsync(db, p1.Id, 0, p2.Id, 0);
 		var adjustment = await InsertHistoryAsync(db, p1.Id, 40, null, null);
 		await db.Database.ExecuteSqlAsync(
-			$"""UPDATE "TournamentMatches" SET "HistoryEntryId" = {linkedTie}, "WinnerPlayerId" = {p1.Id} WHERE "Id" = {match.Id}""");
+			$"""UPDATE "TournamentMatches" SET "HistoryEntryId" = {linkedTie}, "WinnerPlayerId" = {p1.Id} WHERE "Id" = {matchId}""");
 
 		await migrator.MigrateAsync();
 
@@ -150,6 +156,33 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 		Assert.False(p1Won[p1Lost]);
 		Assert.Null(p1Won[unlinkedTie]); // no way to tell — reversal keeps the old fallback
 		Assert.Null(p1Won[adjustment]);  // single-player adjustments have no winner
+	}
+
+	[Fact]
+	public async Task AddOwnBracketMigration_CarriesChallongeParticipantsOver()
+	{
+		var database = await postgres.CreateEmptyDatabaseAsync();
+		await using var db = postgres.CreateContext(database);
+		var migrator = db.GetService<IMigrator>();
+		await migrator.MigrateAsync("20261022152509_AddHistoryEntryP1Won"); // the schema just before the own bracket
+
+		var p1 = TestPlayers.Create(db, "p1");
+		var p2 = TestPlayers.Create(db, "p2");
+		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Cup", State = TournamentState.Complete, ChallongeTournamentId = "ctid" };
+		db.Tournaments.Add(tournament);
+		await db.SaveChangesAsync();
+		foreach (var (challongeId, playerId) in new[] { ("c1", p1.Id), ("c2", p2.Id) })
+		{
+			await db.Database.ExecuteSqlAsync(
+				$"""INSERT INTO "TournamentChallongeParticipants" ("TournamentId", "ChallongeParticipantId", "PlayerId") VALUES ({tournament.Id}, {challongeId}, {playerId})""");
+		}
+
+		await migrator.MigrateAsync();
+
+		await using var after = postgres.CreateContext(database);
+		var participants = await after.TournamentParticipants.Where(p => p.TournamentId == tournament.Id).ToListAsync();
+		Assert.Equal(new[] { p1.Id, p2.Id }.Order(), participants.Select(p => p.PlayerId!.Value).Order());
+		Assert.All(participants, p => Assert.Null(p.Slot));
 	}
 
 	private static async Task<Guid> InsertHistoryAsync(AppDbContext db, Guid p1, int p1Change, Guid? p2, int? p2Change)

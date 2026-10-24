@@ -10,7 +10,7 @@ public interface ISeasonService
 {
 	// Season-end rollover: folds tournamentPoints into elo for every player, resets points to 0,
 	// recomputes tier flags, and re-syncs Discord roles for anyone whose tier changed. Distinct
-	// from TournamentService.FinishAsync, which finalizes a single Challonge bracket.
+	// from TournamentService.FinishAsync, which finalizes a single bracket.
 	Task FinalizeSeasonAsync(CancellationToken ct = default);
 
 	// Archives every player's current standing, then resets elo to a tier-based baseline and

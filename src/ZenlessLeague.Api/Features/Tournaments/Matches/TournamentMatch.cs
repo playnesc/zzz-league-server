@@ -1,3 +1,5 @@
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
+
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
 public class TournamentMatch
@@ -5,7 +7,22 @@ public class TournamentMatch
 	public Guid Id { get; set; }
 	public Guid TournamentId { get; set; }
 
-	public long ChallongeMatchId { get; set; }
+	// Set only on matches synced from Challonge before the bracket moved in-house; those
+	// tournaments have no bracket fields below and still show Challonge's embed.
+	public long? ChallongeMatchId { get; set; }
+
+	// The match's place in the bracket (see BracketEngine): Number is the play order and what the
+	// UI calls it ("M7"); Round/Position place it in the full power-of-two tree. WinnerTo/LoserTo
+	// say where each side goes once it's decided — slot 1 = P1, 2 = P2; null = nowhere (final,
+	// or the loser is eliminated). Null on legacy Challonge-era rows.
+	public BracketSection? Section { get; set; }
+	public int? Round { get; set; }
+	public int? Position { get; set; }
+	public int? Number { get; set; }
+	public Guid? WinnerToMatchId { get; set; }
+	public int? WinnerToSlot { get; set; }
+	public Guid? LoserToMatchId { get; set; }
+	public int? LoserToSlot { get; set; }
 
 	public Guid? P1PlayerId { get; set; }
 	public Guid? P2PlayerId { get; set; }

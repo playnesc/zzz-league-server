@@ -6,7 +6,7 @@ public interface IUnitOfWork
 {
 	// Runs `work` inside one database transaction: every SaveChanges it makes (across any of the
 	// repositories sharing this request's DbContext) commits together, or — if it throws — none do.
-	// Keep slow external calls (Challonge, Discord) outside where possible; they can't be rolled back
+	// Keep slow external calls (Discord, storage) outside where possible; they can't be rolled back
 	// anyway and only hold the transaction open.
 	Task<T> InTransactionAsync<T>(Func<Task<T>> work, CancellationToken ct = default);
 }

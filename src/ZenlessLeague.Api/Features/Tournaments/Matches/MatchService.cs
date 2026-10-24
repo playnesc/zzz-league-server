@@ -4,6 +4,7 @@ using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Storage;
 using ZenlessLeague.Api.Features.Teams;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
 using ZenlessLeague.Api.Infrastructure.Errors;
 using ZenlessLeague.Api.Infrastructure.Persistence;
@@ -12,11 +13,6 @@ namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
 public interface IMatchService
 {
-	// Pulls match state back from Challonge, including the double-elimination "reset"
-	// grand-finals placeholder handling, and flips the tournament to AwaitingReview once every
-	// synced match has a winner.
-	Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default);
-
 	Task<TournamentMatchDto?> SubmitPlayerResultAsync(Guid tournamentId, Guid matchId, string callerPlayerId, SubmitPlayerResultRequest request, CancellationToken ct = default);
 
 	Task<TournamentMatchDto?> SetAdminResultAsync(Guid tournamentId, Guid matchId, SetAdminResultRequest request, CancellationToken ct = default);
@@ -35,15 +31,22 @@ public class MatchValidationException(string message) : ValidationApiException(m
 /// <summary>Thrown when the caller isn't a participant of the match they're trying to act on — maps to 403.</summary>
 public class MatchForbiddenException(string message) : ForbiddenApiException(message);
 
+/// <summary>
+/// A moderator override would change a winner whose later matches were already played; resend with
+/// ConfirmReset to wipe them — maps to 428 (Precondition Required), so the client can tell it apart
+/// from a 409 concurrency conflict and ask for confirmation.
+/// </summary>
+public class MatchResetConfirmationException(string message) : ApiException(StatusCodes.Status428PreconditionRequired, message);
+
 // Result submission for tournament matches: players' own submissions and confirmations, and the
-// moderator override. The Challonge round-trip lives in ChallongeMatchSync, Nexus link handling in
-// NexusResultResolver.
+// moderator override. Moving entrants through the bracket lives in BracketService, Nexus link
+// handling in NexusResultResolver.
 public class MatchService(
 	ITournamentRepository tournamentRepository,
 	ITournamentMatchRepository matchRepository,
 	ITeamRepository teamRepository,
 	IPlayerRepository playerRepository,
-	ChallongeMatchSync challongeSync,
+	IBracketService bracketService,
 	NexusResultResolver nexusResolver,
 	IHistoryService historyService,
 	IFirebaseStorageClient storageClient,
@@ -52,12 +55,6 @@ public class MatchService(
 	IUnitOfWork unitOfWork) : IMatchService
 {
 	private bool ParseNexusResults => nexusOptions.Value.ParseResults;
-
-	public async Task SyncFromChallongeAsync(Guid tournamentId, CancellationToken ct = default)
-	{
-		var tournamentChanged = await challongeSync.SyncAsync(tournamentId, ct);
-		await NotifySyncedAsync(tournamentId, tournamentChanged);
-	}
 
 	private async Task NotifySyncedAsync(Guid tournamentId, bool tournamentChanged)
 	{
@@ -92,13 +89,18 @@ public class MatchService(
 			throw new MatchForbiddenException("Not a participant of this match.");
 		}
 
-		if (match.State == "complete")
+		if (match.State == BracketService.Complete)
 		{
 			throw new MatchValidationException("Match result is already finalized.");
 		}
 
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct)
 			?? throw new MatchValidationException($"Tournament '{tournamentId}' does not exist.");
+
+		if (match.Section is not null && (tournament.State != TournamentState.Started || match.State != BracketService.Open))
+		{
+			throw new MatchValidationException("This match can't be played yet.");
+		}
 
 		if (isTeamMatch)
 		{
@@ -128,7 +130,6 @@ public class MatchService(
 		if (match.P1ApprovedResult && match.P2ApprovedResult)
 		{
 			var p1Win = IsP1Win(tournament.GameMode, match.ResultP1!, match.ResultP2!);
-			await challongeSync.ReportResultAsync(tournament, match, p1Win, "0", ct);
 			var tournamentChanged = await RecordResultAsync(
 				tournament, match, p1Win, match.ResultP1, match.ResultP2, techLoss: false, beforeRecording: null, ct);
 			await NotifySyncedAsync(tournamentId, tournamentChanged);
@@ -269,12 +270,35 @@ public class MatchService(
 			throw new MatchValidationException("Match does not have two known participants yet.");
 		}
 
+		if (match.Section is not null && !TournamentStateMachine.HasStarted(tournament.State))
+		{
+			throw new MatchValidationException("The tournament hasn't started yet.");
+		}
+
+		// A different winner for an already-played match changes who's in every match it fed. Those
+		// are reset (their results and Elo undone) — but only once the moderator has seen which ones.
+		var newWinner = p1Win ? match.P1PlayerId ?? match.P1TeamId : match.P2PlayerId ?? match.P2TeamId;
+		var winnerChanged = match.Section is not null && match.State == BracketService.Complete &&
+			(match.WinnerPlayerId ?? match.WinnerTeamId) != newWinner;
+		if (winnerChanged)
+		{
+			if (tournament.State == TournamentState.Complete)
+			{
+				throw new MatchValidationException("The tournament is finished — a match's winner can't be changed anymore.");
+			}
+
+			var affected = await bracketService.ListAffectedByWinnerChangeAsync(match, ct);
+			if (affected.Count > 0 && !request.ConfirmReset)
+			{
+				throw new MatchResetConfirmationException(
+					$"Changing the winner resets {string.Join(", ", affected.Select(m => $"M{m.Number}"))} — their results and Elo will be undone.");
+			}
+		}
+
 		var uploadedScreenshotUrl = request.ResultScreenshot is not null
-			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
+			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.Id}", ct)
 			: null;
 		var resultScreenshotUrl = uploadedScreenshotUrl ?? match.ResultScreenshotUrl;
-
-		await challongeSync.ReportResultAsync(tournament, match, p1Win, techLoss ? "999" : "0", ct);
 
 		// Undoing the previous result (if any) is part of the same transaction as recording the new
 		// one, so a failure can't leave the match with its old result reversed but no new one applied.
@@ -282,6 +306,11 @@ public class MatchService(
 			tournament, match, p1Win, finalResultP1, finalResultP2, techLoss,
 			beforeRecording: async () =>
 			{
+				if (winnerChanged)
+				{
+					await bracketService.ResetDownstreamAsync(tournament, match, ct);
+				}
+
 				if (match.HistoryEntryId is Guid oldEntryId)
 				{
 					await historyService.ReverseEntryAsync(oldEntryId, ct);
@@ -316,12 +345,10 @@ public class MatchService(
 		return match is null ? null : (await ToDtosAsync([match], ct))[0];
 	}
 
-	// Finalizing a result is two steps, shared by player confirmation and the admin override:
-	//  1. ChallongeMatchSync.ReportResultAsync — the external, non-transactional part. Re-reporting
-	//     the same score is harmless, so if step 2 then fails the whole thing can simply be retried.
-	//  2. RecordResultAsync — every database write (resync, Elo/history, the match itself) in ONE
-	//     transaction: either the result is fully recorded or nothing changed and the match is still
-	//     unfinalized and retryable. Notifications are the caller's job, after this has committed.
+	// Finalizing a result, shared by player confirmation and the admin override: every database
+	// write (Elo/history, the match itself, advancing both sides through the bracket) in ONE
+	// transaction — either the result is fully recorded or nothing changed and the match is still
+	// unfinalized and retryable. Notifications are the caller's job, after this has committed.
 	//
 	// Returns whether the tournament's own state changed (for the caller's post-commit notify).
 	// `beforeRecording` runs first inside the same transaction (the admin path reverses the previous
@@ -336,8 +363,6 @@ public class MatchService(
 			{
 				await beforeRecording();
 			}
-
-			var tournamentChanged = await challongeSync.SyncAsync(tournament.Id, ct);
 
 			// Tagged so history shows "tech loss" instead of whatever result was typed before it.
 			var kind = techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.None;
@@ -364,9 +389,9 @@ public class MatchService(
 				match.HistoryEntryId2 = null;
 			}
 
-			match.State = "complete";
+			match.State = BracketService.Complete;
 			await matchRepository.SaveChangesAsync(ct);
-			return tournamentChanged;
+			return await bracketService.AdvanceAsync(tournament, match, ct);
 		}, ct);
 
 	// Team matches: typed result + screenshot, as before Nexus links existed. Any change to the
@@ -379,7 +404,7 @@ public class MatchService(
 		}
 
 		var uploadedScreenshotUrl = request.ResultScreenshot is not null
-			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.ChallongeMatchId}", ct)
+			? await storageClient.UploadImageAsync(request.ResultScreenshot, $"tournaments/{tournamentId}/matches/{match.Id}", ct)
 			: null;
 
 		var trimmedP1 = request.ResultP1.Trim();
@@ -565,7 +590,8 @@ public class MatchService(
 		}
 
 		return new(
-			m.Id, m.TournamentId, m.ChallongeMatchId,
+			m.Id, m.TournamentId, m.Number, m.Section, m.Round, m.Position,
+			m.WinnerToMatchId, m.WinnerToSlot, m.LoserToMatchId, m.LoserToSlot,
 			m.P1PlayerId is Guid p1 ? uidsById.GetValueOrDefault(p1) : null,
 			m.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) : null,
 			m.P1TeamId, m.P2TeamId, m.State,

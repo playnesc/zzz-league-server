@@ -1,36 +1,16 @@
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Features.Discord;
-using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Infrastructure.Http;
 
 namespace ZenlessLeague.Api.Tests;
 
-// The real ChallongeClient/DiscordClient driven through a stubbed HttpMessageHandler — covers their
-// response handling and logging without network access.
+// The real DiscordClient and the shared HTTP resilience policy driven through a stubbed
+// HttpMessageHandler — covers response handling and retry rules without network access.
 public class ExternalClientTests
 {
-	private const string ChallongeApiKey = "secret-challonge-key";
-
-	[Fact]
-	public async Task ChallongeClient_FailedCall_LogsResponseButNeverTheApiKey()
-	{
-		var logger = new ListLogger<ChallongeClient>();
-		var client = new ChallongeClient(
-			new HttpClient(new StubHandler(HttpStatusCode.InternalServerError, "{\"errors\":[]}")) { BaseAddress = new Uri("https://challonge.test/") },
-			Options.Create(new ChallongeOptions { ApiKey = ChallongeApiKey }),
-			logger);
-
-		await Assert.ThrowsAsync<ChallongeApiException>(() => client.GetMatchesAsync("ctid"));
-
-		var message = Assert.Single(logger.Messages);
-		Assert.Contains("500", message);
-		Assert.DoesNotContain(ChallongeApiKey, message);
-	}
-
 	[Fact]
 	public async Task DiscordClient_RemoveMemberRole_UnknownMember_IsANoOp()
 	{
@@ -51,35 +31,14 @@ public class ExternalClientTests
 	}
 
 	[Fact]
-	public async Task ChallongeClient_GetMatches_FollowsNextLinksOnChallongeHostOnly()
-	{
-		var handler = new ScriptedHandler(request => request.RequestUri!.Query switch
-		{
-			"" => Json(HttpStatusCode.OK, MatchesPage(["1", "2"], next: "https://challonge.test/v2.1/tournaments/ctid/matches.json?page=2")),
-			"?page=2" => Json(HttpStatusCode.OK, MatchesPage(["3"], next: "https://evil.test/steal?page=3")),
-			_ => throw new InvalidOperationException($"Unexpected request {request.RequestUri}"),
-		});
-		var client = new ChallongeClient(
-			new HttpClient(handler) { BaseAddress = new Uri("https://challonge.test/v2.1/") },
-			Options.Create(new ChallongeOptions { ApiKey = ChallongeApiKey }),
-			new ListLogger<ChallongeClient>());
-
-		var matches = await client.GetMatchesAsync("ctid");
-
-		Assert.Equal(["1", "2", "3"], matches.Select(m => m.ChallongeMatchId));
-		// The off-host next link (which would have received the API key) was never requested.
-		Assert.Equal(2, handler.Requests.Count);
-	}
-
-	[Fact]
 	public async Task Resilience_TransientFailureOnIdempotentRequest_IsRetried()
 	{
 		var handler = new ScriptedHandler(FailFirstThen(HttpStatusCode.ServiceUnavailable, Json(HttpStatusCode.OK, "{}")));
-		var client = CreateResilientChallongeClient(handler);
+		var client = CreateResilientClient(handler);
 
-		// A PUT match-result report is idempotent — the same score re-sent is harmless.
-		await client.UpdateMatchResultAsync("ctid", "555", "c1", "c2", p1Win: true, loserScore: "0");
+		var response = await client.PutAsync("things/1", new StringContent("{}"));
 
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		Assert.Equal(2, handler.Requests.Count);
 	}
 
@@ -87,45 +46,37 @@ public class ExternalClientTests
 	public async Task Resilience_Post_IsNeverRetried()
 	{
 		var handler = new ScriptedHandler(FailFirstThen(HttpStatusCode.ServiceUnavailable, Json(HttpStatusCode.OK, "{}")));
-		var client = CreateResilientChallongeClient(handler);
+		var client = CreateResilientClient(handler);
 
-		// A lost response to a POST may still have created the tournament — retrying could create a second one.
-		await Assert.ThrowsAsync<ChallongeApiException>(() =>
-			client.CreateTournamentAsync("Cup", "single elimination", null, DateTimeOffset.UtcNow, null));
+		// A lost response to a POST may still have created the resource — retrying could create a second one.
+		var response = await client.PostAsync("things", new StringContent("{}"));
 
+		Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
 		Assert.Single(handler.Requests);
 	}
 
 	[Fact]
-	public async Task Resilience_ChallongeRandomize_IsNeverRetriedDespiteBeingAPut()
+	public async Task Resilience_PutMarkedNonIdempotent_IsNeverRetried()
 	{
-		var handler = new ScriptedHandler(FailFirstThen(HttpStatusCode.ServiceUnavailable, Json(HttpStatusCode.OK, "{\"data\":[]}")));
-		var client = CreateResilientChallongeClient(handler);
+		var handler = new ScriptedHandler(FailFirstThen(HttpStatusCode.ServiceUnavailable, Json(HttpStatusCode.OK, "{}")));
+		var client = CreateResilientClient(handler, isNonIdempotent: r => r.RequestUri!.AbsolutePath.EndsWith("/shuffle", StringComparison.Ordinal));
 
-		await Assert.ThrowsAsync<ChallongeApiException>(() => client.RandomizeParticipantsAsync("ctid", [("A", "a"), ("B", "b")]));
+		var response = await client.PutAsync("things/shuffle", new StringContent("{}"));
 
+		Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
 		Assert.Single(handler.Requests);
 	}
 
-	private static IChallongeClient CreateResilientChallongeClient(ScriptedHandler handler)
+	// Same registration shape as the real typed clients, with near-zero backoff so the test doesn't wait.
+	private static HttpClient CreateResilientClient(ScriptedHandler handler, Func<HttpRequestMessage, bool>? isNonIdempotent = null)
 	{
 		var services = new ServiceCollection();
 		services.AddLogging();
-		services.Configure<ChallongeOptions>(o => o.ApiKey = ChallongeApiKey);
-		// Same registration shape as Program.cs, with near-zero backoff so the test doesn't wait.
-		services.AddHttpClient<IChallongeClient, ChallongeClient>(c => c.BaseAddress = new Uri("https://challonge.test/v2.1/"))
-			.AddThirdPartyResilience(TimeSpan.FromSeconds(5), isNonIdempotent: ChallongeClient.IsNonIdempotent, retryBaseDelay: TimeSpan.FromMilliseconds(1))
+		services.AddHttpClient("test", c => c.BaseAddress = new Uri("https://api.test/"))
+			.AddThirdPartyResilience(TimeSpan.FromSeconds(5), isNonIdempotent: isNonIdempotent, retryBaseDelay: TimeSpan.FromMilliseconds(1))
 			.ConfigurePrimaryHttpMessageHandler(() => handler);
 
-		return services.BuildServiceProvider().GetRequiredService<IChallongeClient>();
-	}
-
-	private static string MatchesPage(string[] ids, string? next)
-	{
-		var data = string.Join(",", ids.Select(id =>
-			"{\"id\": \"" + id + "\", \"attributes\": {\"round\": 1, \"state\": \"open\", \"points_by_participant\": []}}"));
-		var nextJson = next is null ? "null" : $"\"{next}\"";
-		return "{\"data\": [" + data + "], \"links\": {\"next\": " + nextJson + "}, \"meta\": {\"count\": 3}}";
+		return services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>().CreateClient("test");
 	}
 
 	private static Func<HttpRequestMessage, HttpResponseMessage> FailFirstThen(HttpStatusCode firstStatus, HttpResponseMessage then)

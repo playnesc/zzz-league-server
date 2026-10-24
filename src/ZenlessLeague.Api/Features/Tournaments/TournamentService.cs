@@ -1,4 +1,5 @@
 using ZenlessLeague.Api.Features.Players;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
 using ZenlessLeague.Api.Infrastructure.Errors;
 
@@ -40,10 +41,10 @@ public class TournamentService(
 			MaxTier = request.MaxTier,
 			RegistrationType = request.RegistrationType,
 			GameMode = request.GameMode,
-			BracketType = request.BracketType,
+			BracketType = BracketType(request.BracketType),
 			Visible = request.Visible,
 			OverrideEloChange = request.OverrideEloChange,
-			ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank,
+			ConsolationMatchesTargetRank = ConsolationRank(request.ConsolationMatchesTargetRank),
 			DiscordRoleName = DiscordName(request.DiscordRoleName, "Discord role name"),
 			DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name"),
 		}, ct);
@@ -96,8 +97,8 @@ public class TournamentService(
 		tournament.MinTier = request.MinTier;
 		tournament.MaxTier = request.MaxTier;
 		tournament.OverrideEloChange = request.OverrideEloChange;
-		tournament.BracketType = request.BracketType;
-		tournament.ConsolationMatchesTargetRank = request.ConsolationMatchesTargetRank;
+		tournament.BracketType = BracketType(request.BracketType);
+		tournament.ConsolationMatchesTargetRank = ConsolationRank(request.ConsolationMatchesTargetRank);
 		tournament.Visible = request.Visible;
 		tournament.DiscordRoleName = DiscordName(request.DiscordRoleName, "Discord role name");
 		tournament.DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name");
@@ -106,6 +107,19 @@ public class TournamentService(
 		await notifier.TournamentChangedAsync(id);
 		return await ToDtoAsync(tournament, ct);
 	}
+
+	// Only formats the bracket engine can build are accepted (see BracketFormats).
+	private static string? BracketType(string? bracketType)
+	{
+		BracketFormats.Parse(bracketType);
+		return bracketType;
+	}
+
+	// "Break ties up to place N": only 3 is supported — a 3rd-place match in single elimination
+	// (double elimination already has a unique 3rd place). Larger N would need placement brackets.
+	private static int? ConsolationRank(int? rank) => rank is null or 3
+		? rank
+		: throw new TournamentLifecycleException("Only breaking ties for 3rd place is supported.");
 
 	public async Task<TournamentDto?> CloseRegistrationAsync(Guid id, CancellationToken ct = default)
 	{

@@ -8,6 +8,7 @@ using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
+using ZenlessLeague.Api.Features.Tournaments.Bracket;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 
 namespace ZenlessLeague.Api.Infrastructure.Persistence;
@@ -20,7 +21,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 	public DbSet<TournamentRegistration> TournamentRegistrations => Set<TournamentRegistration>();
 	public DbSet<HistoryEntry> HistoryEntries => Set<HistoryEntry>();
 	public DbSet<TournamentMatch> TournamentMatches => Set<TournamentMatch>();
-	public DbSet<TournamentChallongeParticipant> TournamentChallongeParticipants => Set<TournamentChallongeParticipant>();
+	public DbSet<TournamentParticipant> TournamentParticipants => Set<TournamentParticipant>();
 	public DbSet<Archive> Archives => Set<Archive>();
 	public DbSet<ArchivedPlayerSnapshot> ArchivedPlayerSnapshots => Set<ArchivedPlayerSnapshot>();
 	public DbSet<SeasonTimer> SeasonTimers => Set<SeasonTimer>();
@@ -103,14 +104,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			reg.HasOne<Team>().WithMany().HasForeignKey(r => r.TeamId).OnDelete(DeleteBehavior.SetNull);
 		});
 
-		modelBuilder.Entity<TournamentChallongeParticipant>(participant =>
+		modelBuilder.Entity<TournamentParticipant>(participant =>
 		{
-			participant.HasKey(p => new { p.TournamentId, p.ChallongeParticipantId });
 			// PlayerId (solo) XOR TeamId (team) — Postgres unique indexes already treat NULLs as
 			// distinct from each other, so both stay correct without an explicit filter even
 			// though every team-tournament row leaves PlayerId null (and vice versa).
 			participant.HasIndex(p => new { p.TournamentId, p.PlayerId }).IsUnique();
 			participant.HasIndex(p => new { p.TournamentId, p.TeamId }).IsUnique();
+			participant.Ignore(p => p.EntrantId);
 			participant.HasOne<Tournament>().WithMany().HasForeignKey(p => p.TournamentId).OnDelete(DeleteBehavior.Cascade);
 			participant.HasOne<Player>().WithMany().HasForeignKey(p => p.PlayerId).OnDelete(DeleteBehavior.Restrict);
 			participant.HasOne<Team>().WithMany().HasForeignKey(p => p.TeamId).OnDelete(DeleteBehavior.Restrict);
@@ -118,7 +119,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
 		modelBuilder.Entity<TournamentMatch>(match =>
 		{
-			match.HasIndex(m => new { m.TournamentId, m.ChallongeMatchId }).IsUnique();
+			match.HasIndex(m => new { m.TournamentId, m.ChallongeMatchId }).IsUnique().HasFilter("\"ChallongeMatchId\" IS NOT NULL");
+			match.HasIndex(m => new { m.TournamentId, m.Number }).IsUnique().HasFilter("\"Number\" IS NOT NULL");
+			// WinnerToMatchId/LoserToMatchId are deliberately plain columns, not FKs: a bracket's matches
+			// are only ever created and deleted as one set (BracketService), and no-FK keeps that a
+			// single unordered delete.
 			match.HasOne<Tournament>().WithMany().HasForeignKey(m => m.TournamentId).OnDelete(DeleteBehavior.Cascade);
 			match.HasOne<Player>().WithMany().HasForeignKey(m => m.P1PlayerId).OnDelete(DeleteBehavior.Restrict);
 			match.HasOne<Player>().WithMany().HasForeignKey(m => m.P2PlayerId).OnDelete(DeleteBehavior.Restrict);

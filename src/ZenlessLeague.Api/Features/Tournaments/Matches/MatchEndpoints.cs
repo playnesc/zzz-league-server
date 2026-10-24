@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using ZenlessLeague.Api.Infrastructure.Authorization;
 using ZenlessLeague.Api.Infrastructure.Http;
 
@@ -10,12 +11,23 @@ public static class MatchEndpoints
 	{
 		var group = app.MapGroup("/api/tournaments/{id:guid}/matches");
 
-		group.MapGet("/", async (Guid id, IMatchService service, CancellationToken ct) =>
-			Results.Ok(await service.ListAsync(id, ct)))
+		// Before Start only admins see the matches (see TournamentVisibility.CanSeeBracketAsync) —
+		// everyone else gets an empty list, the same as before a bracket exists at all.
+		group.MapGet("/", async (
+			Guid id, HttpContext http, IAuthorizationService authorization, ITournamentRepository tournaments, IMatchService service, CancellationToken ct) =>
+			Results.Ok(await TournamentVisibility.CanSeeBracketAsync(id, http.User, tournaments, authorization, ct)
+				? await service.ListAsync(id, ct)
+				: []))
 			.RequireVisibleTournament();
 
-		group.MapGet("/{matchId:guid}", async (Guid id, Guid matchId, IMatchService service, CancellationToken ct) =>
+		group.MapGet("/{matchId:guid}", async (
+			Guid id, Guid matchId, HttpContext http, IAuthorizationService authorization, ITournamentRepository tournaments, IMatchService service, CancellationToken ct) =>
 		{
+			if (!await TournamentVisibility.CanSeeBracketAsync(id, http.User, tournaments, authorization, ct))
+			{
+				return Results.NotFound();
+			}
+
 			var match = await service.GetAsync(id, matchId, ct);
 			return match is null ? Results.NotFound() : Results.Ok(match);
 		}).RequireVisibleTournament();

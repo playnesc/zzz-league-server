@@ -111,7 +111,7 @@ public class TeamService(ITeamRepository teamRepository, IPlayerRepository playe
 		bool deleted;
 		try
 		{
-			// Restrict-on-delete FKs (TournamentChallongeParticipants, TournamentMatches'
+			// Restrict-on-delete FKs (TournamentParticipants, TournamentMatches'
 			// p1/p2/winner/tech-loss team, Tournaments.WinnerTeamId) surface here as a raw
 			// Postgres 23001 (restrict_violation — not 23503, which this used to check and so never
 			// matched) if this team ever competed in a tournament — translate that into a message
