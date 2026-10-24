@@ -1,13 +1,10 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Google.Apis.Auth.OAuth2;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using ZenlessLeague.Api.Features.Auth;
+using ZenlessLeague.Api.Features.CommunityCosts;
 using ZenlessLeague.Api.Features.CommunityCosts.Agents;
 using ZenlessLeague.Api.Features.CommunityCosts.Contributions;
 using ZenlessLeague.Api.Features.CommunityCosts.Engines;
@@ -19,12 +16,9 @@ using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Storage;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
-using ZenlessLeague.Api.Features.Tournaments.Challonge;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
 using ZenlessLeague.Api.Features.Tournaments.Realtime;
-using ZenlessLeague.Api.Infrastructure.Authorization;
 using ZenlessLeague.Api.Infrastructure.Errors;
-using ZenlessLeague.Api.Infrastructure.Firebase;
 using ZenlessLeague.Api.Infrastructure.Http;
 using ZenlessLeague.Api.Infrastructure.Persistence;
 
@@ -61,161 +55,21 @@ builder.Services.AddCors(options =>
 		.AllowAnyMethod());
 });
 
-// Provider-neutral by design: Authority-based JWT validation via OIDC discovery works
-// unchanged for any standards-compliant IdP (Firebase today; Keycloak, Auth0, etc. later) —
-// swapping providers is a config change here, not a code change. Business logic never assumes
-// "Firebase" — it only reads the standard "sub" claim (see AuthenticatedUserExtensions) and
-// looks up role from our own Players table, not from provider-specific claims.
-var authAuthority = builder.Configuration["Auth:Authority"]
-	?? throw new InvalidOperationException("Auth:Authority is not configured.");
-var authAudience = builder.Configuration["Auth:Audience"]
-	?? throw new InvalidOperationException("Auth:Audience is not configured.");
-var sessionSigningKey = SessionTokenIssuer.CreateSigningKey(builder.Configuration["Auth:SessionSigningKey"]
-	?? throw new InvalidOperationException("Auth:SessionSigningKey is not configured."));
-
-// Two kinds of Bearer token: Firebase ID tokens from the browser, and our own session tokens from
-// the SvelteKit server (see SessionTokenIssuer). The default scheme just routes each request to the
-// right one by the token's issuer, so every endpoint — including ones where auth is optional —
-// accepts both without listing schemes.
-const string bearerSelectorScheme = "BearerSelector";
-builder.Services.AddAuthentication(bearerSelectorScheme)
-	.AddPolicyScheme(bearerSelectorScheme, null, options =>
-	{
-		options.ForwardDefaultSelector = context =>
-		{
-			var header = context.Request.Headers.Authorization.ToString();
-			return header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-				&& SessionTokenIssuer.IsSessionToken(header["Bearer ".Length..].Trim())
-				? SessionTokenIssuer.Scheme
-				: JwtBearerDefaults.AuthenticationScheme;
-		};
-	})
-	.AddJwtBearer(SessionTokenIssuer.Scheme, options =>
-	{
-		options.TokenValidationParameters = SessionTokenIssuer.CreateValidationParameters(sessionSigningKey);
-	})
-	.AddJwtBearer(options =>
-	{
-		options.Authority = authAuthority;
-		options.TokenValidationParameters = new TokenValidationParameters
-		{
-			ValidIssuer = authAuthority,
-			ValidAudience = authAudience,
-			ValidateIssuer = true,
-			ValidateAudience = true,
-			ValidateLifetime = true,
-		};
-		options.Events = new JwtBearerEvents
-		{
-			// SignalR/WebSocket clients can't set an Authorization header on the handshake —
-			// accept the token via ?access_token= for hub connections instead (see Phase 7).
-			OnMessageReceived = context =>
-			{
-				var accessToken = context.Request.Query["access_token"];
-				if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
-				{
-					context.Token = accessToken;
-				}
-
-				return Task.CompletedTask;
-			},
-		};
-	});
-
-builder.Services.AddAuthorizationBuilder()
-	.AddPolicy("Moderator", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Moderator)))
-	.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)));
-
-builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
-builder.Services.AddApiRateLimiting();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
-builder.Services.AddSingleton<ISessionTokenIssuer>(new SessionTokenIssuer(sessionSigningKey, TimeProvider.System));
+builder.Services.AddApiRateLimiting();
 
-builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
-builder.Services.AddScoped<IPlayerService, PlayerService>();
-
-builder.Services.AddScoped<ITeamRepository, TeamRepository>();
-builder.Services.AddScoped<ITeamService, TeamService>();
-
-builder.Services.AddScoped<IAgentCostRepository, AgentCostRepository>();
-builder.Services.AddScoped<IAgentCostService, AgentCostService>();
-builder.Services.AddScoped<IEngineCostRepository, EngineCostRepository>();
-builder.Services.AddScoped<IEngineCostService, EngineCostService>();
-builder.Services.AddScoped<IContributionRepository, ContributionRepository>();
-builder.Services.AddScoped<IContributionService, ContributionService>();
-
-builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
-builder.Services.AddScoped<ITournamentService, TournamentService>();
-builder.Services.AddScoped<ITournamentLifecycleService, TournamentLifecycleService>();
-builder.Services.AddScoped<ITournamentRegistrationRepository, TournamentRegistrationRepository>();
-builder.Services.AddScoped<ITournamentRegistrationService, TournamentRegistrationService>();
-
-builder.Services.AddScoped<IHistoryRepository, HistoryRepository>();
-builder.Services.AddScoped<IHistoryService, HistoryService>();
-
-builder.Services.Configure<ChallongeOptions>(builder.Configuration.GetSection("Challonge"));
-// Challonge is slow on bulk operations (bulk_add/randomize for a full bracket), hence the longer
-// per-attempt timeout.
-builder.Services.AddHttpClient<IChallongeClient, ChallongeClient>(client =>
-	client.BaseAddress = new Uri("https://api.challonge.com/v2.1/"))
-	.AddThirdPartyResilience(TimeSpan.FromSeconds(20), isNonIdempotent: ChallongeClient.IsNonIdempotent);
-
-builder.Services.Configure<NexusOptions>(builder.Configuration.GetSection("Nexus"));
-builder.Services.AddHttpClient<INexusClient, NexusClient>(client =>
-{
-	client.BaseAddress = new Uri("https://nexus-shiyu.com/");
-	client.Timeout = TimeSpan.FromSeconds(10);
-});
-
-builder.Services.AddScoped<ITournamentChallongeParticipantRepository, TournamentChallongeParticipantRepository>();
-builder.Services.AddScoped<ITournamentMatchRepository, TournamentMatchRepository>();
-builder.Services.AddScoped<ChallongeMatchSync>();
-builder.Services.AddScoped<NexusResultResolver>();
-builder.Services.AddScoped<IMatchService, MatchService>();
-
-builder.Services.AddSignalR();
-builder.Services.AddScoped<ITournamentNotifier, TournamentNotifier>();
-
-builder.Services.Configure<DiscordOptions>(builder.Configuration.GetSection("Discord"));
-// 429s are left to DiscordClient's own Retry-After loop (which also covers POSTs — a 429 means the
-// request wasn't processed), so the pipeline doesn't retry them a second time on top.
-builder.Services.AddHttpClient<IDiscordClient, DiscordClient>(client =>
-	client.BaseAddress = new Uri("https://discord.com/api/v10/"))
-	.AddThirdPartyResilience(TimeSpan.FromSeconds(10), retryOnTooManyRequests: false);
-
-// Separate client/base address from IDiscordClient above — the OAuth token endpoint is
-// unversioned (discord.com/api/oauth2/token), unlike the bot API's /api/v10/... surface. The token
-// exchange is a POST (single-use code) and so never retried; the /users/@me GET is.
-builder.Services.AddHttpClient<IDiscordOAuthClient, DiscordOAuthClient>(client =>
-	client.BaseAddress = new Uri("https://discord.com/api/"))
-	.AddThirdPartyResilience(TimeSpan.FromSeconds(10));
-
-builder.Services.AddScoped<IDiscordRoleAssignmentService, DiscordRoleAssignmentService>();
-builder.Services.AddScoped<ITournamentDiscordResourcesService, TournamentDiscordResourcesService>();
-
-builder.Services.AddSingleton<IFirebaseCustomTokenSigner, FirebaseCustomTokenSigner>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-
-// Genuinely lazy singleton (wrapped in Lazy<T>, not just an AddSingleton factory) — a plain
-// AddSingleton factory still runs as soon as anything holding a FirebaseStorageClient is
-// constructed (e.g. MatchService, pulled in by every TournamentService, including read-only
-// endpoints), which defeats the "only fails when Storage is actually used" intent. Lazy<T> defers
-// the GoogleCredential.FromJson call to the first real .Value access inside FirebaseStorageClient.
-builder.Services.AddSingleton(_ => new Lazy<GoogleCredential>(() =>
-{
-#pragma warning disable CS0618
-	return GoogleCredential.FromJson(FirebaseCredentials.ResolveJson(builder.Configuration))
-		.CreateScoped("https://www.googleapis.com/auth/devstorage.read_write");
-#pragma warning restore CS0618
-}));
-builder.Services.Configure<FirebaseStorageOptions>(builder.Configuration.GetSection("Firebase"));
-// Uploads are POSTs (not retried); the list/delete calls around them are.
-builder.Services.AddHttpClient<IFirebaseStorageClient, FirebaseStorageClient>()
-	.AddThirdPartyResilience(TimeSpan.FromSeconds(20));
-
-builder.Services.AddScoped<IArchiveRepository, ArchiveRepository>();
-builder.Services.AddScoped<ISeasonTimerRepository, SeasonTimerRepository>();
-builder.Services.AddScoped<ISeasonService, SeasonService>();
+// Each feature registers its own services (see <Feature>Feature.cs next to its endpoints).
+builder.Services
+	.AddAuthFeature(builder.Configuration)
+	.AddPlayerFeature()
+	.AddTeamFeature()
+	.AddCommunityCostFeature()
+	.AddTournamentFeature(builder.Configuration)
+	.AddHistoryFeature()
+	.AddNexusFeature(builder.Configuration)
+	.AddDiscordFeature(builder.Configuration)
+	.AddStorageFeature(builder.Configuration)
+	.AddSeasonFeature();
 
 // TLS terminates at Coolify's proxy, so without this every request's RemoteIpAddress is the proxy's
 // (one shared rate-limit bucket, useless logs). X-Forwarded-For is only honored when the direct peer
