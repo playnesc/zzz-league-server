@@ -508,6 +508,9 @@ public class MatchService(
 		return team is not null && (team.Player1Id == playerId || team.Player2Id == playerId);
 	}
 
+	// TODO: equal results (a tie) silently count as a P2 win — both players can confirm a tie and
+	// it's recorded that way. Reject ties instead (player submissions and the moderator override)
+	// with a "results can't be equal" validation error.
 	private static bool IsP1Win(TournamentGameMode mode, string resultP1, string resultP2)
 	{
 		try

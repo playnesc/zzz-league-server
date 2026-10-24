@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using ZenlessLeague.Api.Features.Discord;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Teams;
@@ -21,7 +24,7 @@ public class HistoryServiceTests
 
 	private static HistoryService CreateService(AppDbContext context) =>
 		new(new PlayerRepository(context), new HistoryRepository(context), new TeamRepository(context),
-			TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context));
+			TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context), NullLogger<HistoryService>.Instance);
 
 	[Fact]
 	public async Task RegisterMatchResult_ComputesEloAndUpdatesCounters()
@@ -453,5 +456,29 @@ public class HistoryServiceTests
 		Assert.Single(page.Entries);
 		Assert.False(page.HasMore);
 		Assert.Equal("p1", page.Entries[0].P1PlayerId);
+	}
+
+	[Fact]
+	public async Task SetPlayerElo_DiscordRoleSyncFails_StillSavesAndLogsAWarning()
+	{
+		await using var context = CreateContext();
+		await SeedPlayerAsync(context, "p1");
+		var logger = new ListLogger<HistoryService>();
+		var service = new HistoryService(new PlayerRepository(context), new HistoryRepository(context), new TeamRepository(context),
+			new FailingRoleAssignmentService(), new TournamentRepository(context), logger);
+
+		await service.SetPlayerEloAsync("p1", 1250);
+
+		Assert.Equal(1250, (await context.Players.SingleAsync(p => p.Uid == "p1")).Elo);
+		var warning = Assert.Single(logger.Entries);
+		Assert.Equal(LogLevel.Warning, warning.Level);
+		Assert.IsType<DiscordApiException>(warning.Exception);
+		Assert.Contains("p1", warning.Message);
+	}
+
+	private sealed class FailingRoleAssignmentService : IDiscordRoleAssignmentService
+	{
+		public Task AssignRoleForPlayerAsync(string uid, CancellationToken ct = default) =>
+			throw new DiscordApiException(503, "Service Unavailable");
 	}
 }

@@ -50,7 +50,8 @@ public class HistoryService(
 	IHistoryRepository historyRepository,
 	ITeamRepository teamRepository,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
-	ITournamentRepository tournamentRepository) : IHistoryService
+	ITournamentRepository tournamentRepository,
+	ILogger<HistoryService> logger) : IHistoryService
 {
 	public async Task<HistoryEntryDto> RegisterMatchResultAsync(
 		Guid p1PlayerId, Guid p2PlayerId, bool p1Win, int overrideEloChange,
@@ -259,9 +260,11 @@ public class HistoryService(
 		{
 			await discordRoleAssignmentService.AssignRoleForPlayerAsync(uid, ct);
 		}
-		catch
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			// best-effort — a Discord outage shouldn't block an Elo update.
+			// Best-effort — a Discord outage shouldn't block an Elo update. The role catches up on the
+			// player's next Elo change or season finalize.
+			logger.LogWarning(ex, "Elo set for player {Uid}, but syncing their Discord tier role failed", uid);
 		}
 
 		return ToDto(entry, player.Uid, null);

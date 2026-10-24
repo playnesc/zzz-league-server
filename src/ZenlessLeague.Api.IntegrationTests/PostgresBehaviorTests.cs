@@ -77,7 +77,7 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 			var p2 = TestPlayers.Create(seed, "p2");
 			await seed.SaveChangesAsync();
 			await new HistoryService(new PlayerRepository(seed), new HistoryRepository(seed), new TeamRepository(seed),
-					TestDiscord.CreateRoleAssignmentService(seed), new TournamentRepository(seed))
+					TestDiscord.CreateRoleAssignmentService(seed), new TournamentRepository(seed), NullLogger<HistoryService>.Instance)
 				.RegisterMatchResultAsync(p1.Id, p2.Id, p1Win: true, overrideEloChange: -1);
 		}
 

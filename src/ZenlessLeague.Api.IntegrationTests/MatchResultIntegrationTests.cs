@@ -157,7 +157,7 @@ public class MatchResultIntegrationTests(PostgresFixture postgres)
 		var playerRepository = new PlayerRepository(db);
 		IHistoryService historyService = new HistoryService(
 			playerRepository, new HistoryRepository(db), new TeamRepository(db),
-			TestDiscord.CreateRoleAssignmentService(db), new TournamentRepository(db));
+			TestDiscord.CreateRoleAssignmentService(db), new TournamentRepository(db), NullLogger<HistoryService>.Instance);
 		if (failRegistration)
 		{
 			historyService = new FailingRegistrationHistoryService(historyService);

@@ -20,7 +20,7 @@ public class TournamentServiceTests
 	private static (ITournamentService Service, ITournamentLifecycleService Lifecycle, FakeTournamentNotifier Notifier, FakeChallongeClient Challonge, FakeDiscordClient Discord) CreateService(AppDbContext context)
 	{
 		var playerRepository = new PlayerRepository(context);
-		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context));
+		var historyService = new HistoryService(playerRepository, new HistoryRepository(context), new TeamRepository(context), TestDiscord.CreateRoleAssignmentService(context), new TournamentRepository(context), NullLogger<HistoryService>.Instance);
 		var challonge = new FakeChallongeClient();
 		var matchService = new MatchService(
 			new TournamentRepository(context),
