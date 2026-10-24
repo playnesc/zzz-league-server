@@ -55,6 +55,12 @@ public static class TournamentEndpoints
 		group.MapPut("/{id:guid}/bracket/layout", async (Guid id, SaveBracketLayoutRequest request, IBracketService service, CancellationToken ct) =>
 			await HandleBracket(service.SaveLayoutAsync(id, request, ct))).RequireAuthorization("Admin");
 
+		group.MapPost("/{id:guid}/bracket/preview", async (Guid id, SaveBracketLayoutRequest request, IBracketService service, CancellationToken ct) =>
+		{
+			var preview = await service.PreviewLayoutAsync(id, request, ct);
+			return preview is null ? Results.NotFound() : Results.Ok(preview);
+		}).RequireAuthorization("Admin");
+
 		group.MapPost("/{id:guid}/start", async (Guid id, ITournamentLifecycleService service, CancellationToken ct) =>
 			await Handle(service.StartAsync(id, ct))).RequireAuthorization("Admin");
 

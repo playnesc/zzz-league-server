@@ -13,3 +13,17 @@ public record BracketDto(
 public record BracketStandingDto(string? PlayerId, Guid? TeamId, int Rank);
 
 public record SaveBracketLayoutRequest(List<string?> Slots);
+
+// One match of a not-yet-saved layout (see BracketService.PreviewLayoutAsync): matches are keyed
+// by Number, entrants by uid / team id like the slots.
+public record BracketPreviewMatchDto(
+	int Number,
+	BracketSection Section,
+	int Round,
+	int Position,
+	string? P1,
+	string? P2,
+	int? WinnerToNumber,
+	int? WinnerToSlot,
+	int? LoserToNumber,
+	int? LoserToSlot);

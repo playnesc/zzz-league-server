@@ -69,6 +69,35 @@ public class BracketServiceTests
 	}
 
 	[Fact]
+	public async Task PreviewLayout_ShowsWhatSaveWouldGenerate_WithoutSavingIt()
+	{
+		await using var context = CreateContext();
+		var (tournament, _, bracket, _) = await SeedDoubleEliminationAsync(context, start: false);
+		var layout = new SaveBracketLayoutRequest(["p1", "p3", "p2", "p4"]);
+
+		var preview = await bracket.PreviewLayoutAsync(tournament.Id, layout);
+
+		Assert.Equal(("p1", "p3"), (preview![0].P1, preview[0].P2));
+		Assert.Equal(["p1", "p2", "p3", "p4"], (await bracket.GetAsync(tournament.Id))!.Slots);
+
+		await bracket.SaveLayoutAsync(tournament.Id, layout);
+		var saved = await context.TournamentMatches.Where(m => m.TournamentId == tournament.Id).OrderBy(m => m.Number).ToListAsync();
+		Assert.Equal(
+			preview.Select(p => (p.Number, p.Section, p.Round, p.Position)),
+			saved.Select(m => (m.Number!.Value, m.Section!.Value, m.Round!.Value, m.Position!.Value)));
+	}
+
+	[Fact]
+	public async Task PreviewLayout_AfterStart_IsRejected()
+	{
+		await using var context = CreateContext();
+		var (tournament, _, bracket, _) = await SeedDoubleEliminationAsync(context);
+
+		await Assert.ThrowsAsync<TournamentLifecycleException>(() =>
+			bracket.PreviewLayoutAsync(tournament.Id, new SaveBracketLayoutRequest(["p1", "p3", "p2", "p4"])));
+	}
+
+	[Fact]
 	public async Task SaveLayout_InvalidLayout_Throws()
 	{
 		await using var context = CreateContext();

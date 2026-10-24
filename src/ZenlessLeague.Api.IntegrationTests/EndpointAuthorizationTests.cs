@@ -92,6 +92,7 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 		["POST /api/tournaments/{id:guid}/bracket"] = Admin,
 		["GET /api/tournaments/{id:guid}/bracket"] = Anonymous,
 		["PUT /api/tournaments/{id:guid}/bracket/layout"] = Admin,
+		["POST /api/tournaments/{id:guid}/bracket/preview"] = Admin,
 		["POST /api/tournaments/{id:guid}/start"] = Admin,
 		["POST /api/tournaments/{id:guid}/finish"] = Admin,
 		["POST /api/tournaments/{id:guid}/increment-count"] = Admin,

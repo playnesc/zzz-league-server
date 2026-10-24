@@ -19,6 +19,10 @@ public interface IBracketService
 	// simply be regenerated.
 	Task<BracketDto?> SaveLayoutAsync(Guid tournamentId, SaveBracketLayoutRequest request, CancellationToken ct = default);
 
+	// The bracket a layout would generate, without saving anything — the editor redraws the later
+	// rounds from it after every swap, so what the admin sees is exactly what Save produces.
+	Task<List<BracketPreviewMatchDto>?> PreviewLayoutAsync(Guid tournamentId, SaveBracketLayoutRequest request, CancellationToken ct = default);
+
 	// Called inside MatchService's result transaction once `match` is complete with its winner set:
 	// moves both sides into their next matches and flips Started -> AwaitingReview when nothing is
 	// left to play. Returns whether the tournament's own state changed.
@@ -78,13 +82,59 @@ public class BracketService(
 		return participants.Any(p => p.Slot is not null) ? await ToDtoAsync(tournament, participants, ct) : null;
 	}
 
-	public Task<BracketDto?> SaveLayoutAsync(Guid tournamentId, SaveBracketLayoutRequest request, CancellationToken ct = default) =>
-		RearrangeAsync(tournamentId, async (tournament, participants) =>
+	public async Task<BracketDto?> SaveLayoutAsync(Guid tournamentId, SaveBracketLayoutRequest request, CancellationToken ct = default)
+	{
+		if (await LoadForRearrangingAsync(tournamentId, ct) is not { } rearranging)
 		{
-			var slots = await ParseSlotsAsync(tournament, request.Slots, ct);
-			BracketLayout.Validate(slots, participants.Select(p => p.EntrantId).ToList());
-			return slots;
+			return null;
+		}
+
+		var (tournament, participants) = rearranging;
+
+		var slots = await ParseValidLayoutAsync(tournament, participants, request.Slots, ct);
+
+		await unitOfWork.InTransactionAsync(async () =>
+		{
+			foreach (var participant in participants)
+			{
+				participant.Slot = slots.IndexOf(participant.EntrantId);
+			}
+
+			await participantRepository.SaveChangesAsync(ct);
+			await matchRepository.RemoveRangeAsync(await matchRepository.ListByTournamentAsync(tournamentId, ct), ct);
+			await GenerateMatchesAsync(tournament, slots, ct);
 		}, ct);
+
+		await notifier.MatchesSyncedAsync(tournamentId);
+		return await ToDtoAsync(tournament, participants, ct);
+	}
+
+	public async Task<List<BracketPreviewMatchDto>?> PreviewLayoutAsync(Guid tournamentId, SaveBracketLayoutRequest request, CancellationToken ct = default)
+	{
+		if (await LoadForRearrangingAsync(tournamentId, ct) is not { } rearranging)
+		{
+			return null;
+		}
+
+		var (tournament, participants) = rearranging;
+
+		var slots = await ParseValidLayoutAsync(tournament, participants, request.Slots, ct);
+
+		// The request already names every entrant the way the API addresses them (uid / team id).
+		var keys = new Dictionary<Guid, string>();
+		for (var i = 0; i < slots.Count; i++)
+		{
+			if (slots[i] is Guid id)
+			{
+				keys[id] = request.Slots[i]!;
+			}
+		}
+
+		string? Key(Guid? id) => id is Guid entrant ? keys[entrant] : null;
+		return Generate(tournament, slots).Select(s => new BracketPreviewMatchDto(
+			s.Number, s.Section, s.Round, s.Position, Key(s.P1), Key(s.P2),
+			s.WinnerToNumber, s.WinnerToSlot, s.LoserToNumber, s.LoserToSlot)).ToList();
+	}
 
 	public async Task<bool> AdvanceAsync(Tournament tournament, TournamentMatch match, CancellationToken ct = default)
 	{
@@ -218,8 +268,8 @@ public class BracketService(
 		return participants;
 	}
 
-	private async Task<BracketDto?> RearrangeAsync(
-		Guid tournamentId, Func<Tournament, List<TournamentParticipant>, Task<List<Guid?>>> layout, CancellationToken ct)
+	// The tournament and its participants, if its bracket may still be rearranged.
+	private async Task<(Tournament Tournament, List<TournamentParticipant> Participants)?> LoadForRearrangingAsync(Guid tournamentId, CancellationToken ct)
 	{
 		var tournament = await tournamentRepository.GetByIdAsync(tournamentId, ct);
 		if (tournament is null)
@@ -232,30 +282,24 @@ public class BracketService(
 			throw new TournamentLifecycleException("The bracket can only be rearranged before the tournament starts.");
 		}
 
-		var participants = await participantRepository.ListByTournamentAsync(tournamentId, ct);
-		var slots = await layout(tournament, participants);
-
-		await unitOfWork.InTransactionAsync(async () =>
-		{
-			foreach (var participant in participants)
-			{
-				participant.Slot = slots.IndexOf(participant.EntrantId);
-			}
-
-			await participantRepository.SaveChangesAsync(ct);
-			await matchRepository.RemoveRangeAsync(await matchRepository.ListByTournamentAsync(tournamentId, ct), ct);
-			await GenerateMatchesAsync(tournament, slots, ct);
-		}, ct);
-
-		await notifier.MatchesSyncedAsync(tournamentId);
-		return await ToDtoAsync(tournament, participants, ct);
+		return (tournament, await participantRepository.ListByTournamentAsync(tournamentId, ct));
 	}
+
+	private async Task<List<Guid?>> ParseValidLayoutAsync(
+		Tournament tournament, List<TournamentParticipant> participants, List<string?> requested, CancellationToken ct)
+	{
+		var slots = await ParseSlotsAsync(tournament, requested, ct);
+		BracketLayout.Validate(slots, participants.Select(p => p.EntrantId).ToList());
+		return slots;
+	}
+
+	private static List<BracketMatchSpec> Generate(Tournament tournament, List<Guid?> slots) =>
+		BracketEngine.Generate(BracketFormats.Parse(tournament.BracketType), slots, thirdPlace: tournament.ConsolationMatchesTargetRank is not null);
 
 	private async Task GenerateMatchesAsync(Tournament tournament, List<Guid?> slots, CancellationToken ct)
 	{
 		var isTeam = tournament.RegistrationType == TournamentRegistrationType.Team;
-		var thirdPlace = tournament.ConsolationMatchesTargetRank is not null;
-		var specs = BracketEngine.Generate(BracketFormats.Parse(tournament.BracketType), slots, thirdPlace);
+		var specs = Generate(tournament, slots);
 
 		var ids = specs.ToDictionary(s => s.Number, _ => Guid.NewGuid());
 		var matches = specs.Select(s => new TournamentMatch
