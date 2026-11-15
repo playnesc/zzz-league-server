@@ -10,7 +10,8 @@ public record LoginWithDiscordRequest(string Code, string RedirectUri);
 public record LoginWithDiscordResponse(string Token);
 public record LinkDiscordRequest(string Code, string RedirectUri);
 public record CreateSessionResponse(string Token, DateTimeOffset ExpiresAt, PlayerDto Player);
-public record CreateGameTokenResponse(string Token, DateTimeOffset ExpiresAt);
+// Uid/Name/Avatar let the game show who's signed in and find its own row on the leaderboard.
+public record CreateGameTokenResponse(string Token, DateTimeOffset ExpiresAt, string Uid, string Name, string? Avatar);
 
 public static class AuthEndpoints
 {
@@ -48,13 +49,14 @@ public static class AuthEndpoints
 		auth.MapPost("/game-token", async (HttpContext http, IPlayerService playerService, IGameTokenIssuer issuer, CancellationToken ct) =>
 		{
 			var uid = http.User.GetUid()!;
-			if (await playerService.GetAsync(uid, ct) is null)
+			var player = await playerService.GetAsync(uid, ct);
+			if (player is null)
 			{
 				return Results.NotFound();
 			}
 
 			var game = issuer.Issue(uid);
-			return Results.Ok(new CreateGameTokenResponse(game.Token, game.ExpiresAt));
+			return Results.Ok(new CreateGameTokenResponse(game.Token, game.ExpiresAt, player.Uid, player.Name, player.Avatar));
 		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		var players = app.MapGroup("/api/players/me/discord");
