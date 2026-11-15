@@ -44,6 +44,11 @@ public static class AuthFeature
 			{
 				options.TokenValidationParameters = SessionTokenIssuer.CreateValidationParameters(sessionSigningKey);
 			})
+			// Never picked by the selector above — only endpoints that require the Game policy run it.
+			.AddJwtBearer(GameTokenIssuer.Scheme, options =>
+			{
+				options.TokenValidationParameters = GameTokenIssuer.CreateValidationParameters(sessionSigningKey);
+			})
 			.AddJwtBearer(options =>
 			{
 				options.Authority = authAuthority;
@@ -74,10 +79,14 @@ public static class AuthFeature
 
 		services.AddAuthorizationBuilder()
 			.AddPolicy("Moderator", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Moderator)))
-			.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)));
+			.AddPolicy("Admin", policy => policy.Requirements.Add(new RoleRequirement(PlayerRole.Admin)))
+			.AddPolicy(GameTokenIssuer.Policy, policy => policy
+				.AddAuthenticationSchemes(GameTokenIssuer.Scheme)
+				.RequireAuthenticatedUser());
 		services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
 
 		services.AddSingleton<ISessionTokenIssuer>(new SessionTokenIssuer(sessionSigningKey, TimeProvider.System));
+		services.AddSingleton<IGameTokenIssuer>(new GameTokenIssuer(sessionSigningKey, TimeProvider.System));
 		services.AddSingleton<IFirebaseCustomTokenSigner, FirebaseCustomTokenSigner>();
 		services.AddScoped<IAuthService, AuthService>();
 		return services;

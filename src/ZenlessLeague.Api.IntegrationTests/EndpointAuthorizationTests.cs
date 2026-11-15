@@ -32,6 +32,8 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 	private const string Moderator = "Moderator";
 	private const string Admin = "Admin";
 	private const string FirebaseOnly = "firebase-only";
+	// Only a game token (GameTokenIssuer) — a site session is turned away, and vice versa.
+	private const string GameOnly = GameTokenIssuer.Policy;
 
 	// Every endpoint's access rule. A new endpoint, or a changed rule, fails
 	// EveryEndpoint_HasItsReviewedAccessRule until it's added here — so each one gets a deliberate
@@ -45,6 +47,7 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 
 		["POST /api/auth/discord/login"] = Anonymous,
 		["POST /api/auth/session"] = FirebaseOnly,
+		["POST /api/auth/game-token"] = SignedIn,
 		["POST /api/players/me/discord/link"] = SignedIn,
 		["POST /api/players/me/discord/unlink"] = SignedIn,
 
@@ -127,6 +130,10 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 		["PUT /api/seasons/timer"] = Admin,
 		["GET /api/archives"] = Anonymous,
 		["DELETE /api/archives/{seasonName}"] = Admin,
+
+		["GET /api/surfers/leaderboard"] = Anonymous,
+		["GET /api/surfers/me"] = GameOnly,
+		["POST /api/surfers/scores"] = GameOnly,
 
 		["ANY /hubs/tournaments/negotiate"] = SignedIn,
 		["ANY /hubs/tournaments"] = SignedIn,
@@ -376,6 +383,28 @@ public partial class EndpointAuthorizationTests(PostgresFixture postgres) : IAsy
 		Assert.Equal(1, await MatchCountAsync(null));
 		Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, $"/api/tournaments/{tournamentId}/bracket", null)).StatusCode);
 		Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, $"/api/tournaments/{tournamentId}/matches/{matchId}", null)).StatusCode);
+	}
+
+	[Fact]
+	public async Task GameToken_OnlyWorksOnGameEndpoints()
+	{
+		await SeedPlayersAsync(("alice", PlayerRole.Player));
+		var client = factory.CreateClient();
+
+		// A site session can't post scores; it trades itself for a game token instead.
+		Assert.Equal(HttpStatusCode.Unauthorized, (await PostAsync(client, "/api/surfers/scores", new { score = 100, durationSeconds = 60 }, "alice")).StatusCode);
+		var minted = await PostAsync(client, "/api/auth/game-token", new { }, "alice");
+		Assert.Equal(HttpStatusCode.OK, minted.StatusCode);
+		var gameToken = (await minted.Content.ReadFromJsonAsync<CreateGameTokenResponse>())!.Token;
+
+		var submitted = await SendRawAsync(client, HttpMethod.Post, "/api/surfers/scores", new { score = 100, durationSeconds = 60 }, gameToken);
+		Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
+		Assert.Equal(HttpStatusCode.OK, (await SendRawAsync(client, HttpMethod.Get, "/api/surfers/me", null, gameToken)).StatusCode);
+
+		// ...and the game token is anonymous everywhere else, including for minting more of itself.
+		Assert.Equal(HttpStatusCode.Unauthorized, (await SendRawAsync(client, HttpMethod.Get, "/api/players/me", null, gameToken)).StatusCode);
+		Assert.Equal(HttpStatusCode.Unauthorized, (await SendRawAsync(client, HttpMethod.Post, "/api/auth/game-token", new { }, gameToken)).StatusCode);
+		Assert.Equal(HttpStatusCode.Unauthorized, (await SendRawAsync(client, HttpMethod.Post, "/api/auth/session", new { }, gameToken)).StatusCode);
 	}
 
 	private sealed record TournamentListEntry(Guid Id);
