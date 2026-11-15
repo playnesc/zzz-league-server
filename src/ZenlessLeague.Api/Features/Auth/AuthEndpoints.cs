@@ -10,6 +10,7 @@ public record LoginWithDiscordRequest(string Code, string RedirectUri);
 public record LoginWithDiscordResponse(string Token);
 public record LinkDiscordRequest(string Code, string RedirectUri);
 public record CreateSessionResponse(string Token, DateTimeOffset ExpiresAt, PlayerDto Player);
+public record CreateGameTokenResponse(string Token, DateTimeOffset ExpiresAt);
 
 public static class AuthEndpoints
 {
@@ -41,6 +42,20 @@ public static class AuthEndpoints
 			var session = issuer.Issue(uid);
 			return Results.Ok(new CreateSessionResponse(session.Token, session.ExpiresAt, player));
 		}).RequireAuthorization(firebaseOnly).RequireRateLimiting(RateLimits.UserWrites);
+
+		// Trades a site login (session or Firebase token) for a game token (see GameTokenIssuer).
+		// A game token can't call this, so the game can only stay signed in through the site.
+		auth.MapPost("/game-token", async (HttpContext http, IPlayerService playerService, IGameTokenIssuer issuer, CancellationToken ct) =>
+		{
+			var uid = http.User.GetUid()!;
+			if (await playerService.GetAsync(uid, ct) is null)
+			{
+				return Results.NotFound();
+			}
+
+			var game = issuer.Issue(uid);
+			return Results.Ok(new CreateGameTokenResponse(game.Token, game.ExpiresAt));
+		}).RequireAuthorization().RequireRateLimiting(RateLimits.UserWrites);
 
 		var players = app.MapGroup("/api/players/me/discord");
 

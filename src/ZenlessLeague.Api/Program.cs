@@ -14,6 +14,7 @@ using ZenlessLeague.Api.Features.Nexus;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
 using ZenlessLeague.Api.Features.Storage;
+using ZenlessLeague.Api.Features.Surfers;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Matches;
@@ -69,7 +70,8 @@ builder.Services
 	.AddNexusFeature(builder.Configuration)
 	.AddDiscordFeature(builder.Configuration)
 	.AddStorageFeature(builder.Configuration)
-	.AddSeasonFeature();
+	.AddSeasonFeature()
+	.AddSurfersFeature(builder.Configuration);
 
 // TLS terminates at Coolify's proxy, so without this every request's RemoteIpAddress is the proxy's
 // (one shared rate-limit bucket, useless logs). X-Forwarded-For is only honored when the direct peer
@@ -160,6 +162,7 @@ app.MapRegistrationEndpoints();
 app.MapHistoryEndpoints();
 app.MapMatchEndpoints();
 app.MapSeasonEndpoints();
+app.MapSurfersEndpoints();
 
 // See the OnMessageReceived handler above for how a bearer token reaches a WebSocket handshake.
 app.MapHub<TournamentHub>("/hubs/tournaments").RequireAuthorization();

@@ -1707,6 +1707,33 @@ namespace ZenlessLeague.Api.Migrations
                     b.ToTable("SeasonTimers");
                 });
 
+            modelBuilder.Entity("ZenlessLeague.Api.Features.Surfers.SurfersScore", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AchievedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("PlayerId");
+
+                    b.HasIndex("Score");
+
+                    b.ToTable("SurfersScores");
+                });
+
             modelBuilder.Entity("ZenlessLeague.Api.Features.Teams.Team", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2185,6 +2212,15 @@ namespace ZenlessLeague.Api.Migrations
                         .WithMany()
                         .HasForeignKey("PlayerId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("ZenlessLeague.Api.Features.Surfers.SurfersScore", b =>
+                {
+                    b.HasOne("ZenlessLeague.Api.Features.Players.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ZenlessLeague.Api.Features.Teams.Team", b =>

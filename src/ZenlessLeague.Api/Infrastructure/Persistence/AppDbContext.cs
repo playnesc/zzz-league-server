@@ -6,6 +6,7 @@ using ZenlessLeague.Api.Features.CommunityCosts.Engines;
 using ZenlessLeague.Api.Features.History;
 using ZenlessLeague.Api.Features.Players;
 using ZenlessLeague.Api.Features.Seasons;
+using ZenlessLeague.Api.Features.Surfers;
 using ZenlessLeague.Api.Features.Teams;
 using ZenlessLeague.Api.Features.Tournaments;
 using ZenlessLeague.Api.Features.Tournaments.Bracket;
@@ -32,6 +33,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 	public DbSet<Contribution> Contributions => Set<Contribution>();
 	public DbSet<ContributionReview> ContributionReviews => Set<ContributionReview>();
 	public DbSet<ReviewComment> ReviewComments => Set<ReviewComment>();
+	public DbSet<SurfersScore> SurfersScores => Set<SurfersScore>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -252,6 +254,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 			comment.HasOne<Player>().WithMany().HasForeignKey(c => c.AuthorPlayerId).OnDelete(DeleteBehavior.Restrict);
 			// No uniqueness — unlimited comments per review, unlike ContributionReview above.
 			comment.HasIndex(c => c.ReviewId);
+		});
+
+		modelBuilder.Entity<SurfersScore>(score =>
+		{
+			// One best score per player; a deleted player drops off the leaderboard with them.
+			score.HasKey(s => s.PlayerId);
+			score.HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.Cascade);
+			// Leaderboard order and the rank count (scores above yours).
+			score.HasIndex(s => s.Score);
+			score.Property(s => s.Version).IsRowVersion();
 		});
 	}
 }
