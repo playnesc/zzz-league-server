@@ -19,7 +19,7 @@ public class NexusUnavailableException(string message) : ApiException(StatusCode
 
 public interface INexusClient
 {
-	// Raw JSON of nexus-shiyu.com's (undocumented) /api/results/{id} endpoint — the same data its
+	// Raw JSON of zzz.nexus's (undocumented) /api/results/{id} endpoint — the same data its
 	// /results/{id}/obs overlay renders. Public, no auth, but no CORS headers, hence server-side.
 	Task<string> GetResultJsonAsync(string resultId, CancellationToken ct = default);
 }

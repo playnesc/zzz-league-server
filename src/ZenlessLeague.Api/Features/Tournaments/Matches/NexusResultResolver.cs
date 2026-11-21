@@ -19,7 +19,7 @@ public class NexusResultResolver(
 	{
 		if (!NexusLink.TryParseId(url, out var resultId))
 		{
-			throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
+			throw new NexusResultException("That's not a Nexus result link (https://zzz.nexus/results/…).");
 		}
 
 		if (match.P1PlayerId is not Guid p1Id || match.P2PlayerId is not Guid p2Id)
@@ -70,7 +70,7 @@ public class NexusResultResolver(
 
 		return NexusLink.TryParseId(url, out var resultId)
 			? resultId
-			: throw new NexusResultException("That's not a Nexus result link (https://nexus-shiyu.com/results/…).");
+			: throw new NexusResultException("That's not a Nexus result link (https://zzz.nexus/results/…).");
 	}
 
 	// A player is recognized by their Nexus nickname from this tournament's registration (the

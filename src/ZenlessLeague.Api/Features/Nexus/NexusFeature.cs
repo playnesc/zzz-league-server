@@ -7,7 +7,7 @@ public static class NexusFeature
 		services.Configure<NexusOptions>(configuration.GetSection("Nexus"));
 		services.AddHttpClient<INexusClient, NexusClient>(client =>
 		{
-			client.BaseAddress = new Uri("https://nexus-shiyu.com/");
+			client.BaseAddress = new Uri("https://zzz.nexus/");
 			client.Timeout = TimeSpan.FromSeconds(10);
 		});
 		return services;
