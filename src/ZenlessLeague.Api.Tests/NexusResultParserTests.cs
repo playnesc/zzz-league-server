@@ -121,6 +121,8 @@ public class NexusResultParserTests
 	[InlineData("https://nexus-shiyu.com/results/cmvfr4qka0ffh52vtem5hwxsf", "cmvfr4qka0ffh52vtem5hwxsf")]
 	[InlineData("  https://www.nexus-shiyu.com/results/CMVFR4QKA0FFH52VTEM5HWXSF/obs/  ", "cmvfr4qka0ffh52vtem5hwxsf")]
 	[InlineData("https://nexus-shiyu.com/results/cmvfr4qka0ffh52vtem5hwxsf/obs?x=1", "cmvfr4qka0ffh52vtem5hwxsf")]
+	[InlineData("https://zzz.nexus/results/cmvpibq63008f4zvttnujy2fa/obs", "cmvpibq63008f4zvttnujy2fa")]
+	[InlineData("https://www.zzz.nexus/results/cmvpibq63008f4zvttnujy2fa", "cmvpibq63008f4zvttnujy2fa")]
 	public void NexusLink_AcceptsResultLinks(string url, string expectedId)
 	{
 		Assert.True(NexusLink.TryParseId(url, out var id));
@@ -133,6 +135,8 @@ public class NexusResultParserTests
 	[InlineData("cmvfr4qka0ffh52vtem5hwxsf")]
 	[InlineData("https://evil.example/results/cmvfr4qka0ffh52vtem5hwxsf/obs")]
 	[InlineData("https://nexus-shiyu.com.evil.example/results/cmvfr4qka0ffh52vtem5hwxsf")]
+	[InlineData("https://zzz.nexus.evil.example/results/cmvpibq63008f4zvttnujy2fa")]
+	[InlineData("https://zzzanexus/results/cmvpibq63008f4zvttnujy2fa")]
 	[InlineData("https://nexus-shiyu.com/api/results/cmvfr4qka0ffh52vtem5hwxsf")]
 	[InlineData("https://nexus-shiyu.com/results/../admin")]
 	public void NexusLink_RejectsAnythingElse(string? url)
