@@ -179,6 +179,29 @@ public class MatchServiceTests
 	}
 
 	[Fact]
+	public async Task SubmitPlayerResultAsync_RealNexusDraftLink_UsesSeriesTotals()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, p1Player, p2Player) = await SeedAsync(context);
+		await RegisterAsync(context, tournament, p1Player, "Ratper");
+		await RegisterAsync(context, tournament, p2Player, "m_Debil");
+		// Game 2's draft isn't served — the decided series' totals still cover it.
+		var nexus = new FakeNexusClient();
+		nexus.Results[NexusFixtures.RealId] = NexusFixtures.Real;
+		var (service, _) = CreateService(context, nexus);
+
+		var afterP1 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
+			new SubmitPlayerResultRequest(NexusResultUrl: $"https://zzz.nexus/drafts/{NexusFixtures.RealId}?adminToken=cmwto087500ajx8vto2lbfkfy"));
+		Assert.Equal("03:29", afterP1!.ResultP1);
+		Assert.Equal("04:12", afterP1.ResultP2);
+		Assert.Equal(NexusFixtures.RealId, afterP1.NexusResultId);
+
+		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest());
+		Assert.Equal("complete", afterP2!.State);
+		Assert.Equal("p1", afterP2.WinnerPlayerId);
+	}
+
+	[Fact]
 	public async Task SubmitPlayerResultAsync_NonParticipant_ThrowsForbidden()
 	{
 		await using var context = CreateContext();
@@ -273,7 +296,7 @@ public class MatchServiceTests
 
 		// p1 submits the half-finished result; p2 resubmits the same link after game 2 was played.
 		await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1", new SubmitPlayerResultRequest(NexusResultUrl: link));
-		nexus.Results[NexusFixtures.ShiyuUnfinishedId] = NexusFixtures.Build("m_Debil", "shad1w", scoreBased: false, ("1:23", "2:22"), ("1:00", "1:10"));
+		NexusFixtures.AddSeries(nexus, NexusFixtures.ShiyuUnfinishedId, "m_Debil", "shad1w", scoreBased: false, decided: true, (83, 142), (60, 70));
 		var afterP2 = await service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p2", new SubmitPlayerResultRequest(NexusResultUrl: link));
 
 		Assert.False(afterP2!.P1ApprovedResult);
@@ -331,8 +354,8 @@ public class MatchServiceTests
 		await using var context = CreateContext();
 		var (tournament, match, _, _) = await SeedAsync(context);
 		var nexus = new FakeNexusClient();
-		nexus.Results["nothingplayed00"] = NexusFixtures.Build("a", "b", scoreBased: false, ("0:00", "0:00"), ("0:00", "0:00"));
-		nexus.Results["tiedresult00000"] = NexusFixtures.Build("a", "b", scoreBased: false, ("1:00", "2:00"), ("2:00", "1:00"));
+		NexusFixtures.AddSeries(nexus, "nothingplayed00", "a", "b", scoreBased: false, decided: false, (null, null), (null, null));
+		NexusFixtures.AddSeries(nexus, "tiedresult00000", "a", "b", scoreBased: false, decided: true, (60, 120), (120, 60));
 		var (service, _) = CreateService(context, nexus);
 
 		await Assert.ThrowsAsync<MatchValidationException>(() => service.SubmitPlayerResultAsync(tournament.Id, match.Id, "p1",
@@ -341,7 +364,7 @@ public class MatchServiceTests
 			new SubmitPlayerResultRequest(NexusResultUrl: NexusFixtures.Link("tiedresult00000"), NexusP1Side: "left")));
 	}
 
-	// ---- NexusOptions.ParseResults off (current): typed result + link stored as proof ----
+	// ---- NexusOptions.ParseResults off (fallback): typed result + link stored as proof ----
 
 	[Fact]
 	public async Task SubmitPlayerResultAsync_ParsingOff_TypedResultWithNexusLink_BothApprove_FinalizesAndRegistersHistory()

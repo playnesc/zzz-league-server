@@ -45,9 +45,12 @@ public class TournamentMatch
 	public Guid? HistoryEntryId { get; set; }
 	public Guid? HistoryEntryId2 { get; set; }
 
-	// Set when the result came from a nexus-shiyu.com result link (solo matches). NexusSnapshot is
-	// the raw /api/results/{id} JSON as fetched at submission; NexusP1IsLeft says which Nexus side
-	// is P1 (null if a moderator stored a link without the sides being known).
+	// Set when the result came from a Nexus draft link (solo matches); NexusResultId is the draft id.
+	// NexusSnapshot is a JSON array of the integration endpoint's draft responses as fetched at
+	// submission (pasted draft first, then its series' other games — see NexusResultParser); older
+	// rows may hold the pre-integration /api/results/{id} JSON, which no longer parses and is ignored.
+	// NexusP1IsLeft says whether P1 is the pasted draft's creator (null if a moderator stored a link
+	// without the sides being known).
 	public string? NexusResultId { get; set; }
 	public string? NexusSnapshot { get; set; }
 	public bool? NexusP1IsLeft { get; set; }
