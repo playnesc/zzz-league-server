@@ -1,0 +1,52 @@
+{
+  "id": "draft-102",
+  "groupId": "match-51",
+  "gameNumber": 2,
+  "gameType": "BEST_OF_TWO",
+  "status": "DONE",
+  "discipline": "SHIYU",
+  "mode": "SOLO",
+  "tournamentId": "tournament-12",
+  "updatedAt": "2026-11-24T17:42:00.000Z",
+  "unit": "seconds",
+  "creator": {
+    "userId": "player-b",
+    "nick": "Kitsune",
+    "teamId": null,
+    "raw": 120,
+    "restartPenalty": 0,
+    "final": 120
+  },
+  "opponent": {
+    "userId": "player-a",
+    "nick": "Astra",
+    "teamId": null,
+    "raw": 110,
+    "restartPenalty": 5,
+    "final": 115
+  },
+  "squads": {
+    "creator": {
+      "squad1": ["agent-1", "agent-2", "agent-3"],
+      "squad2": ["agent-4", "agent-5", "agent-6"],
+      "amps1": [],
+      "amps2": []
+    },
+    "opponent": {
+      "squad1": ["agent-7", "agent-8", "agent-9"],
+      "squad2": ["agent-10", "agent-11", "agent-12"],
+      "amps1": [],
+      "amps2": []
+    }
+  },
+  "winnerId": "player-a",
+  "match": {
+    "gameIds": ["draft-101", "draft-102"],
+    "totals": [
+      { "userId": "player-a", "nick": "Astra", "final": 235 },
+      { "userId": "player-b", "nick": "Kitsune", "final": 248 }
+    ],
+    "decided": true,
+    "winnerId": "player-a"
+  }
+}

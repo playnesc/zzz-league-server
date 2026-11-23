@@ -5,8 +5,8 @@ namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
 public sealed record LoadedNexusResult(string ResultId, string Json, NexusParsedResult Parsed, bool? P1IsLeft);
 
-// Turns a pasted Nexus result link into a solo match's result: fetches and parses it, and works out
-// which Nexus side is the match's P1.
+// Turns a pasted Nexus draft link into a solo match's result: fetches the draft and the other games
+// of its series, parses them, and works out which Nexus side is the match's P1.
 public class NexusResultResolver(
 	INexusClient nexusClient,
 	ITournamentRegistrationRepository registrationRepository,
@@ -19,7 +19,7 @@ public class NexusResultResolver(
 	{
 		if (!NexusLink.TryParseId(url, out var resultId))
 		{
-			throw new NexusResultException("That's not a Nexus result link (https://zzz.nexus/results/…).");
+			throw new NexusResultException("That's not a Nexus draft link (https://zzz.nexus/drafts/…).");
 		}
 
 		if (match.P1PlayerId is not Guid p1Id || match.P2PlayerId is not Guid p2Id)
@@ -27,10 +27,12 @@ public class NexusResultResolver(
 			throw new MatchValidationException("Match does not have two known participants yet.");
 		}
 
-		var json = await nexusClient.GetResultJsonAsync(resultId, ct);
+		var draftJson = await nexusClient.GetDraftResultJsonAsync(resultId, ct);
+		string json = draftJson;
 		NexusParsedResult parsed;
 		try
 		{
+			json = NexusResultParser.BuildSnapshot(draftJson, await LoadOtherGamesAsync(resultId, draftJson, ct));
 			parsed = NexusResultParser.Parse(json, tournament.GameMode);
 		}
 		catch (NexusFormatException ex)
@@ -53,6 +55,29 @@ public class NexusResultResolver(
 		return new LoadedNexusResult(resultId, json, parsed, p1IsLeft);
 	}
 
+	// Ids come from Nexus's own response but are still only used as an escaped path segment of the
+	// fixed Nexus base address. An unknown sibling is just left out (that game shows as missing);
+	// Nexus being down fails the whole load like the pasted draft would.
+	private const int MaxSeriesGames = 5;
+
+	private async Task<List<string>> LoadOtherGamesAsync(string draftId, string draftJson, CancellationToken ct)
+	{
+		var others = new List<string>();
+		foreach (var gameId in NexusResultParser.ReadOtherGameIds(draftJson).Take(MaxSeriesGames))
+		{
+			try
+			{
+				others.Add(await nexusClient.GetDraftResultJsonAsync(gameId, ct));
+			}
+			catch (NexusResultException)
+			{
+				logger.LogWarning("Nexus draft {DraftId} lists game {GameId}, which Nexus couldn't find", draftId, gameId);
+			}
+		}
+
+		return others;
+	}
+
 	public static (string? ResultP1, string? ResultP2) MapTotals(NexusParsedResult parsed, bool? p1IsLeft) => p1IsLeft switch
 	{
 		true => (parsed.LeftTotal, parsed.RightTotal),
@@ -70,7 +95,7 @@ public class NexusResultResolver(
 
 		return NexusLink.TryParseId(url, out var resultId)
 			? resultId
-			: throw new NexusResultException("That's not a Nexus result link (https://zzz.nexus/results/…).");
+			: throw new NexusResultException("That's not a Nexus draft link (https://zzz.nexus/drafts/…).");
 	}
 
 	// A player is recognized by their Nexus nickname from this tournament's registration (the

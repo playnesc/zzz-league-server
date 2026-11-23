@@ -19,23 +19,24 @@ public class NexusUnavailableException(string message) : ApiException(StatusCode
 
 public interface INexusClient
 {
-	// Raw JSON of zzz.nexus's (undocumented) /api/results/{id} endpoint — the same data its
-	// /results/{id}/obs overlay renders. Public, no auth, but no CORS headers, hence server-side.
-	Task<string> GetResultJsonAsync(string resultId, CancellationToken ct = default);
+	// Raw JSON of zzz.nexus's playnesc integration endpoint for one draft (= one game; the same id
+	// its /drafts/{id} and /results/{id}/obs pages use). Nexus only answers our server's IP (anyone
+	// else gets a Cloudflare 403), hence server-side.
+	Task<string> GetDraftResultJsonAsync(string draftId, CancellationToken ct = default);
 }
 
 public class NexusClient(HttpClient httpClient, ILogger<NexusClient> logger) : INexusClient
 {
-	public async Task<string> GetResultJsonAsync(string resultId, CancellationToken ct = default)
+	public async Task<string> GetDraftResultJsonAsync(string draftId, CancellationToken ct = default)
 	{
 		HttpResponseMessage response;
 		try
 		{
-			response = await httpClient.GetAsync($"api/results/{Uri.EscapeDataString(resultId)}", ct);
+			response = await httpClient.GetAsync($"api/integrations/playnesc/drafts/{Uri.EscapeDataString(draftId)}/results", ct);
 		}
 		catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
 		{
-			logger.LogWarning(ex, "Nexus request for result {ResultId} failed", resultId);
+			logger.LogWarning(ex, "Nexus request for draft {DraftId} failed", draftId);
 			throw new NexusUnavailableException("Nexus is unavailable right now, try again later.");
 		}
 
@@ -46,9 +47,17 @@ public class NexusClient(HttpClient httpClient, ILogger<NexusClient> logger) : I
 				throw new NexusResultException("Nexus result not found.");
 			}
 
+			// The integration endpoint is IP-whitelisted — a 403 most likely means our server's IP
+			// changed (new Hetzner box, Cloudflare in front of us) and Nexus has to whitelist it again.
+			if (response.StatusCode == HttpStatusCode.Forbidden)
+			{
+				logger.LogError("Nexus refused draft {DraftId} with 403 — is this server's IP still whitelisted by Nexus?", draftId);
+				throw new NexusUnavailableException("Nexus is unavailable right now, try again later.");
+			}
+
 			if (!response.IsSuccessStatusCode)
 			{
-				logger.LogWarning("Nexus returned {StatusCode} for result {ResultId}", (int)response.StatusCode, resultId);
+				logger.LogWarning("Nexus returned {StatusCode} for draft {DraftId}", (int)response.StatusCode, draftId);
 				throw new NexusUnavailableException("Nexus is unavailable right now, try again later.");
 			}
 

@@ -2,11 +2,12 @@ using ZenlessLeague.Api.Features.Tournaments.Bracket;
 
 namespace ZenlessLeague.Api.Features.Tournaments.Matches;
 
-// Solo matches, NexusOptions.ParseResults on: the result comes from NexusResultUrl
-// (ResultP1/ResultP2/ResultScreenshot are ignored); omit it to just toggle your confirmation of the
-// result already stored. NexusP1Side ("left"/"right") is only needed when the Nexus names couldn't
-// be matched to players. ParseResults off (current): ResultP1/ResultP2 are required and
-// NexusResultUrl is stored as proof without being fetched (required unless one is already stored).
+// Solo matches, NexusOptions.ParseResults on (default): the result comes from NexusResultUrl, any
+// zzz.nexus draft/result link of the match (ResultP1/ResultP2/ResultScreenshot are ignored); omit it
+// to just toggle your confirmation of the result already stored. NexusP1Side ("left" = the draft's
+// creator, "right" = its opponent) is only needed when the Nexus nicks couldn't be matched to
+// players. ParseResults off (fallback): ResultP1/ResultP2 are required and NexusResultUrl is stored
+// as proof without being fetched (required unless one is already stored).
 // Team matches: ResultP1/ResultP2 are required and ResultScreenshot is a base64 data-url image.
 public record SubmitPlayerResultRequest(
 	string? ResultP1 = null,
