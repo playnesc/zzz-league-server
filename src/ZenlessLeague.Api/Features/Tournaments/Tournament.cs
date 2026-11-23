@@ -43,6 +43,9 @@ public class Tournament
 	public Guid? WinnerId { get; set; } // FK to Player.Id, set once the tournament completes
 	public Guid? WinnerTeamId { get; set; } // team-tournament equivalent of WinnerId, set XOR with it
 
+	// Unranked tournaments still record results (0 Elo change, wins/losses counted) but award no
+	// tournament points or prize Elo; OverrideEloChange is ignored for them.
+	public bool IsRanked { get; set; } = true;
 	public int? OverrideEloChange { get; set; }
 	public int? ConsolationMatchesTargetRank { get; set; }
 	public string? DivisionGroupId { get; set; }

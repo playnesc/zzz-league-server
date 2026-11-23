@@ -358,20 +358,20 @@ public class HistoryService(
 		var uidsById = await playerRepository.GetUidsByIdsAsync(ids, ct);
 
 		var tournamentIds = entries.Where(e => e.TournamentId is not null).Select(e => e.TournamentId!.Value).Distinct();
-		var namesByTournamentId = await tournamentRepository.GetNamesByIdsAsync(tournamentIds, ct);
+		var labelsByTournamentId = await tournamentRepository.GetLabelsByIdsAsync(tournamentIds, ct);
 
 		return entries.Select(e => ToDto(
 			e,
 			uidsById.GetValueOrDefault(e.P1PlayerId) ?? throw new InvalidOperationException($"Player '{e.P1PlayerId}' referenced by history entry '{e.Id}' is missing."),
 			e.P2PlayerId is Guid p2 ? uidsById.GetValueOrDefault(p2) ?? throw new InvalidOperationException($"Player '{p2}' referenced by history entry '{e.Id}' is missing.") : null,
-			e.TournamentId is Guid tid ? namesByTournamentId.GetValueOrDefault(tid) : null))
+			e.TournamentId is Guid tid ? labelsByTournamentId.GetValueOrDefault(tid) : null))
 			.ToList();
 	}
 
-	// tournamentName defaults to null for the single-entry write-path callers (Register*/SetPlayerElo)
+	// tournament defaults to null for the single-entry write-path callers (Register*/SetPlayerElo)
 	// — their return value is only ever used for its Id right after creation, never rendered as a
 	// history-list row in the same response, so resolving the name there would be wasted work.
-	private static HistoryEntryDto ToDto(HistoryEntry e, string p1Uid, string? p2Uid, string? tournamentName = null) => new(
-		e.Id, p1Uid, e.P1Change, p2Uid, e.P2Change,
-		e.TournamentId, tournamentName, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.Timestamp);
+	private static HistoryEntryDto ToDto(HistoryEntry e, string p1Uid, string? p2Uid, TournamentLabel? tournament = null) => new(
+		e.Id, p1Uid, e.P1Change, p2Uid, e.P2Change, e.P1Won,
+		e.TournamentId, tournament?.Name, tournament?.IsRanked, e.TournamentMatchId, e.Kind, e.ResultP1, e.ResultP2, e.Timestamp);
 }

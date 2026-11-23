@@ -179,11 +179,12 @@ public class TournamentServiceTests
 	}
 
 	[Fact]
-	public async Task SplitAsync_NewDivisionsKeepGameModeAndScreenshots()
+	public async Task SplitAsync_NewDivisionsKeepGameModeRankingAndScreenshots()
 	{
 		await using var context = CreateContext();
 		var tournament = await SeedTournamentAsync(context);
 		tournament.GameMode = TournamentGameMode.DeadlyAssault;
+		tournament.IsRanked = false;
 		foreach (var uid in new[] { "p1", "p2", "p3", "p4" })
 		{
 			var registration = await SeedApprovedRegistrationAsync(context, tournament.Id, uid);
@@ -198,6 +199,7 @@ public class TournamentServiceTests
 		// A Deadly Assault division defaulting to Shiyu Defense would pick match winners backwards.
 		var divisionB = await context.Tournaments.SingleAsync(t => t.Id == result!.DivisionTournamentIds[1]);
 		Assert.Equal(TournamentGameMode.DeadlyAssault, divisionB.GameMode);
+		Assert.False(divisionB.IsRanked);
 
 		var divisionBRegs = await context.TournamentRegistrations.Where(r => r.TournamentId == divisionB.Id).ToListAsync();
 		Assert.Equal(2, divisionBRegs.Count);
@@ -277,6 +279,26 @@ public class TournamentServiceTests
 	}
 
 	[Fact]
+	public async Task FinishAsync_Unranked_NoPrizeEloAndOnlyTotalPlayedCount()
+	{
+		await using var context = CreateContext();
+		var (tournament, lifecycle) = await SeedStartedForFinishAsync(context);
+		tournament.IsRanked = false;
+		await context.SaveChangesAsync();
+
+		var result = await lifecycle.FinishAsync(tournament.Id);
+
+		Assert.Equal(TournamentState.Complete, result!.State);
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		var p2 = await context.Players.SingleAsync(p => p.Uid == "p2");
+		Assert.Equal(1000, p1.Elo);
+		Assert.Equal(1000, p2.Elo);
+		Assert.Equal(1, p1.PlayedTournamentCount);
+		Assert.Equal(0, p1.SeasonalPlayedTournamentCount);
+		Assert.Empty(await context.HistoryEntries.ToListAsync());
+	}
+
+	[Fact]
 	public async Task FinishAsync_AlreadyComplete_ThrowsWithoutReapplyingRewards()
 	{
 		await using var context = CreateContext();
@@ -344,6 +366,40 @@ public class TournamentServiceTests
 		Assert.Equal("role", result.DiscordRoleName);
 		Assert.Equal("channel", result.DiscordChannelName);
 		Assert.Contains(tournament.Id, notifier.TournamentChanged);
+	}
+
+	[Fact]
+	public async Task UpdateAsync_Unranked_StoresFlagAndDropsEloOverride()
+	{
+		await using var context = CreateContext();
+		var tournament = await SeedTournamentAsync(context);
+		var (service, _, _, _, _) = CreateService(context);
+
+		var result = await service.UpdateAsync(tournament.Id, MakeUpdateRequest() with { IsRanked = false });
+
+		Assert.False(result!.IsRanked);
+		Assert.Equal(-1, result.OverrideEloChange);
+	}
+
+	[Fact]
+	public async Task CreateAsync_DefaultsToRanked_UnrankedDropsEloOverride()
+	{
+		await using var context = CreateContext();
+		var (service, _, _, _, _) = CreateService(context);
+		var request = new CreateTournamentRequest(
+			"Cup", null,
+			DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1),
+			DateTimeOffset.UtcNow.AddDays(2), DateTimeOffset.UtcNow.AddDays(3),
+			0, 0, 0, 0, 1000, TournamentRegistrationType.Solo,
+			BracketType: "single elimination", OverrideEloChange: 15);
+
+		var ranked = await service.CreateAsync(request);
+		var unranked = await service.CreateAsync(request with { IsRanked = false });
+
+		Assert.True(ranked.IsRanked);
+		Assert.Equal(15, ranked.OverrideEloChange);
+		Assert.False(unranked.IsRanked);
+		Assert.Equal(-1, unranked.OverrideEloChange);
 	}
 
 	[Fact]

@@ -126,15 +126,14 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 
 		var p1 = TestPlayers.Create(db, "p1");
 		var p2 = TestPlayers.Create(db, "p2");
-		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Cup" };
-		db.Tournaments.Add(tournament);
 		await db.SaveChangesAsync();
+		var tournamentId = await InsertTournamentAsync(db, TournamentState.Registration, challongeTournamentId: null);
 		// With SQL: the current model's TournamentMatch has columns this older schema doesn't.
 		var matchId = Guid.NewGuid();
 		await db.Database.ExecuteSqlAsync(
 			$"""
 			INSERT INTO "TournamentMatches" ("Id", "TournamentId", "ChallongeMatchId", "P1PlayerId", "P2PlayerId", "State", "P1ApprovedResult", "P2ApprovedResult")
-			VALUES ({matchId}, {tournament.Id}, 1, {p1.Id}, {p2.Id}, 'complete', false, false)
+			VALUES ({matchId}, {tournamentId}, 1, {p1.Id}, {p2.Id}, 'complete', false, false)
 			""");
 
 		// History rows as they existed before the column (inserted with SQL — the current model
@@ -168,21 +167,49 @@ public class PostgresBehaviorTests(PostgresFixture postgres)
 
 		var p1 = TestPlayers.Create(db, "p1");
 		var p2 = TestPlayers.Create(db, "p2");
-		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Cup", State = TournamentState.Complete, ChallongeTournamentId = "ctid" };
-		db.Tournaments.Add(tournament);
 		await db.SaveChangesAsync();
+		var tournamentId = await InsertTournamentAsync(db, TournamentState.Complete, challongeTournamentId: "ctid");
 		foreach (var (challongeId, playerId) in new[] { ("c1", p1.Id), ("c2", p2.Id) })
 		{
 			await db.Database.ExecuteSqlAsync(
-				$"""INSERT INTO "TournamentChallongeParticipants" ("TournamentId", "ChallongeParticipantId", "PlayerId") VALUES ({tournament.Id}, {challongeId}, {playerId})""");
+				$"""INSERT INTO "TournamentChallongeParticipants" ("TournamentId", "ChallongeParticipantId", "PlayerId") VALUES ({tournamentId}, {challongeId}, {playerId})""");
 		}
 
 		await migrator.MigrateAsync();
 
 		await using var after = postgres.CreateContext(database);
-		var participants = await after.TournamentParticipants.Where(p => p.TournamentId == tournament.Id).ToListAsync();
+		var participants = await after.TournamentParticipants.Where(p => p.TournamentId == tournamentId).ToListAsync();
 		Assert.Equal(new[] { p1.Id, p2.Id }.Order(), participants.Select(p => p.PlayerId!.Value).Order());
 		Assert.All(participants, p => Assert.Null(p.Slot));
+	}
+
+	[Fact]
+	public async Task AddTournamentIsRankedMigration_BackfillsExistingTournamentsAsRanked()
+	{
+		var database = await postgres.CreateEmptyDatabaseAsync();
+		await using var db = postgres.CreateContext(database);
+		var migrator = db.GetService<IMigrator>();
+		await migrator.MigrateAsync("20261115171213_AddSurfersScores"); // the schema just before IsRanked
+		var tournamentId = await InsertTournamentAsync(db, TournamentState.Complete, challongeTournamentId: null);
+
+		await migrator.MigrateAsync();
+
+		await using var after = postgres.CreateContext(database);
+		Assert.True((await after.Tournaments.SingleAsync(t => t.Id == tournamentId)).IsRanked);
+	}
+
+	// With SQL: the current model's Tournament has columns (e.g. IsRanked) these older schemas don't.
+	private static async Task<Guid> InsertTournamentAsync(AppDbContext db, TournamentState state, string? challongeTournamentId)
+	{
+		var id = Guid.NewGuid();
+		var now = DateTimeOffset.UtcNow;
+		await db.Database.ExecuteSqlAsync(
+			$"""
+			INSERT INTO "Tournaments" ("Id", "Name", "RegistrationStartDate", "RegistrationEndDate", "TournamentStartDate", "TournamentEndDate",
+				"MinCost", "MaxCost", "MinCharacters", "MinTier", "MaxTier", "State", "RegistrationType", "GameMode", "Visible", "ChallongeTournamentId")
+			VALUES ({id}, 'Cup', {now}, {now}, {now}, {now}, 0, 0, 0, 0, 0, {(int)state}, 0, 0, true, {challongeTournamentId})
+			""");
+		return id;
 	}
 
 	private static async Task<Guid> InsertHistoryAsync(AppDbContext db, Guid p1, int p1Change, Guid? p2, int? p2Change)

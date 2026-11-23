@@ -225,10 +225,14 @@ public class TournamentLifecycleService(
 			tournament.WinnerTeamId = isTeamTournament ? winner.TeamId : null;
 			await tournamentRepository.SaveChangesAsync(ct);
 
-			var isSeasonal = (tournament.OverrideEloChange ?? -1) == -1;
+			// Unranked tournaments still count as played, but never as seasonal and earn no prize Elo.
+			var isSeasonal = tournament.IsRanked && (tournament.OverrideEloChange ?? -1) == -1;
 
 			await IncrementPlayedCountsAsync(participants, isSeasonal, ct);
-			await ApplyPrizeEloBonusAsync(participants, isTeamTournament, isSeasonal, ct);
+			if (tournament.IsRanked)
+			{
+				await ApplyPrizeEloBonusAsync(participants, isTeamTournament, isSeasonal, ct);
+			}
 		}, ct);
 
 		await notifier.TournamentChangedAsync(id);
@@ -430,6 +434,7 @@ public class TournamentLifecycleService(
 					RegistrationType = tournament.RegistrationType,
 					GameMode = tournament.GameMode,
 					BracketType = tournament.BracketType,
+					IsRanked = tournament.IsRanked,
 					OverrideEloChange = tournament.OverrideEloChange,
 					ConsolationMatchesTargetRank = tournament.ConsolationMatchesTargetRank,
 					Visible = tournament.Visible,

@@ -1981,6 +1981,9 @@ namespace ZenlessLeague.Api.Migrations
                     b.Property<int>("GameMode")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsRanked")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("LegacyId")
                         .HasColumnType("text");
 
