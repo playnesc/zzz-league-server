@@ -704,6 +704,70 @@ public class MatchServiceTests
 	}
 
 	[Fact]
+	public async Task SetAdminResultAsync_Unranked_RecordsZeroChangeButCountsWinLoss()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		tournament.IsRanked = false;
+		await context.SaveChangesAsync();
+		var (service, _) = CreateService(context);
+
+		var result = await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest("01:00", "02:00"));
+
+		Assert.Equal("p1", result!.WinnerPlayerId);
+		var stored = await context.TournamentMatches.SingleAsync(m => m.Id == match.Id);
+		var entry = await context.HistoryEntries.SingleAsync(e => e.Id == stored.HistoryEntryId);
+		Assert.Equal(0, entry.P1Change);
+		Assert.Equal(0, entry.P2Change);
+		Assert.True(entry.P1Won);
+
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		var p2 = await context.Players.SingleAsync(p => p.Uid == "p2");
+		Assert.Equal(0, p1.TournamentPoints);
+		Assert.Equal(0, p2.TournamentPoints);
+		Assert.Equal(1, p1.Wins);
+		Assert.Equal(1, p2.Losses);
+	}
+
+	[Fact]
+	public async Task SetAdminResultAsync_UnrankedTechLoss_LoserLosesNoPoints()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, _, _) = await SeedAsync(context);
+		tournament.IsRanked = false;
+		await context.SaveChangesAsync();
+		var (service, _) = CreateService(context);
+
+		await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest(TechLossPlayerId: "p2"));
+
+		var p1 = await context.Players.SingleAsync(p => p.Uid == "p1");
+		var p2 = await context.Players.SingleAsync(p => p.Uid == "p2");
+		Assert.Equal(0, p1.TournamentPoints);
+		Assert.Equal(0, p2.TournamentPoints);
+		Assert.Equal(1, p2.Losses);
+	}
+
+	[Fact]
+	public async Task SetAdminResultAsync_UnrankedTeam_RecordsZeroChangeForBothLanes()
+	{
+		await using var context = CreateContext();
+		var (tournament, match, team1, _) = await SeedTeamAsync(context);
+		tournament.IsRanked = false;
+		await context.SaveChangesAsync();
+		var (service, _) = CreateService(context);
+
+		var result = await service.SetAdminResultAsync(tournament.Id, match.Id, new SetAdminResultRequest("01:00", "02:00"));
+
+		Assert.Equal(team1.Id, result!.WinnerTeamId);
+		var entries = await context.HistoryEntries.ToListAsync();
+		Assert.Equal(2, entries.Count);
+		Assert.All(entries, e => Assert.Equal((0, 0), (e.P1Change, e.P2Change!.Value)));
+		Assert.All(await context.Players.ToListAsync(), p => Assert.Equal(0, p.TournamentPoints));
+		Assert.Equal(1, (await context.Players.SingleAsync(p => p.Uid == "p1b")).Wins);
+		Assert.Equal(1, (await context.Players.SingleAsync(p => p.Uid == "p2b")).Losses);
+	}
+
+	[Fact]
 	public async Task SetAdminResultAsync_TeamTechLoss_WinnerIsOpponentTeam()
 	{
 		await using var context = CreateContext();

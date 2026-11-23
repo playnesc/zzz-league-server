@@ -43,7 +43,8 @@ public class TournamentService(
 			GameMode = request.GameMode,
 			BracketType = BracketType(request.BracketType),
 			Visible = request.Visible,
-			OverrideEloChange = request.OverrideEloChange,
+			IsRanked = request.IsRanked,
+			OverrideEloChange = EloOverride(request.IsRanked, request.OverrideEloChange),
 			ConsolationMatchesTargetRank = ConsolationRank(request.ConsolationMatchesTargetRank),
 			DiscordRoleName = DiscordName(request.DiscordRoleName, "Discord role name"),
 			DiscordChannelName = DiscordName(request.DiscordChannelName, "Discord channel name"),
@@ -96,7 +97,8 @@ public class TournamentService(
 		tournament.MinCharacters = request.MinCharacters;
 		tournament.MinTier = request.MinTier;
 		tournament.MaxTier = request.MaxTier;
-		tournament.OverrideEloChange = request.OverrideEloChange;
+		tournament.IsRanked = request.IsRanked;
+		tournament.OverrideEloChange = EloOverride(request.IsRanked, request.OverrideEloChange);
 		tournament.BracketType = BracketType(request.BracketType);
 		tournament.ConsolationMatchesTargetRank = ConsolationRank(request.ConsolationMatchesTargetRank);
 		tournament.Visible = request.Visible;
@@ -114,6 +116,10 @@ public class TournamentService(
 		BracketFormats.Parse(bracketType);
 		return bracketType;
 	}
+
+	// A fixed Elo change means nothing for an unranked tournament (results award 0), so it's
+	// normalized to "no override" rather than stored as a misleading leftover.
+	private static int EloOverride(bool isRanked, int overrideEloChange) => isRanked ? overrideEloChange : -1;
 
 	// "Break ties up to place N": only 3 is supported — a 3rd-place match in single elimination
 	// (double elimination already has a unique 3rd place). Larger N would need placement brackets.
@@ -172,5 +178,5 @@ public class TournamentService(
 		t.State, t.RegistrationType, t.GameMode, t.Visible, t.BracketType,
 		t.ChallongeTournamentId, t.ChallongeTournamentUrl, t.ChallongeWinnerId, winnerUid, t.WinnerTeamId,
 		t.DivisionGroupId, t.DivisionIndex,
-		t.OverrideEloChange, t.ConsolationMatchesTargetRank, t.DiscordRoleName, t.DiscordChannelName);
+		t.OverrideEloChange, t.ConsolationMatchesTargetRank, t.DiscordRoleName, t.DiscordChannelName, t.IsRanked);
 }

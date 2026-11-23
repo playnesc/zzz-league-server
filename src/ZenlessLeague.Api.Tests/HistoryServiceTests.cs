@@ -403,11 +403,11 @@ public class HistoryServiceTests
 	}
 
 	[Fact]
-	public async Task ListPageAsync_EntryWithTournamentId_ResolvesTournamentName()
+	public async Task ListPageAsync_EntryWithTournamentId_ResolvesTournamentNameAndRanking()
 	{
 		await using var context = CreateContext();
 		var p1 = await SeedPlayerAsync(context, "p1");
-		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Spring Cup" };
+		var tournament = new Tournament { Id = Guid.NewGuid(), Name = "Spring Cup", IsRanked = false };
 		context.Tournaments.Add(tournament);
 		var entry = MakeEntry(p1.Id, DateTimeOffset.UtcNow);
 		entry.TournamentId = tournament.Id;
@@ -418,6 +418,7 @@ public class HistoryServiceTests
 		var page = await service.ListPageAsync(50, null, null);
 
 		Assert.Equal("Spring Cup", page.Entries[0].TournamentName);
+		Assert.False(page.Entries[0].TournamentIsRanked);
 	}
 
 	[Fact]
@@ -434,6 +435,7 @@ public class HistoryServiceTests
 		var page = await service.ListPageAsync(50, null, null);
 
 		Assert.Null(page.Entries[0].TournamentName);
+		Assert.Null(page.Entries[0].TournamentIsRanked);
 	}
 
 	[Fact]

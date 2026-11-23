@@ -20,12 +20,14 @@ public interface ITournamentRepository
 	// Lightweight Visible lookup for HiddenTournamentFilter; null when the tournament doesn't exist.
 	Task<bool?> GetVisibilityAsync(Guid id, CancellationToken ct = default);
 
-	// Batch Id -> Name resolution for list-returning callers (e.g. history entries showing which
-	// tournament they belong to) — one query per list, not one per row.
-	Task<Dictionary<Guid, string>> GetNamesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+	// Batch Id -> (Name, IsRanked) resolution for list-returning callers (e.g. history entries showing
+	// which tournament they belong to) — one query per list, not one per row.
+	Task<Dictionary<Guid, TournamentLabel>> GetLabelsByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
 
 	Task SaveChangesAsync(CancellationToken ct = default);
 }
+
+public record TournamentLabel(string Name, bool IsRanked);
 
 public class TournamentRepository(AppDbContext context) : ITournamentRepository
 {
@@ -76,7 +78,7 @@ public class TournamentRepository(AppDbContext context) : ITournamentRepository
 		return true;
 	}
 
-	public async Task<Dictionary<Guid, string>> GetNamesByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+	public async Task<Dictionary<Guid, TournamentLabel>> GetLabelsByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
 	{
 		var idList = ids.Distinct().ToList();
 		if (idList.Count == 0)
@@ -86,7 +88,7 @@ public class TournamentRepository(AppDbContext context) : ITournamentRepository
 
 		return await context.Tournaments.AsNoTracking()
 			.Where(t => idList.Contains(t.Id))
-			.ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+			.ToDictionaryAsync(t => t.Id, t => new TournamentLabel(t.Name, t.IsRanked), ct);
 	}
 
 	public Task SaveChangesAsync(CancellationToken ct = default) => context.SaveChangesAsync(ct);

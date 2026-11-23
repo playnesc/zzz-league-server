@@ -19,7 +19,8 @@ public record CreateTournamentRequest(
 	int OverrideEloChange = -1,
 	int? ConsolationMatchesTargetRank = null,
 	string? DiscordRoleName = null,
-	string? DiscordChannelName = null);
+	string? DiscordChannelName = null,
+	bool IsRanked = true);
 
 public record UpdateTournamentRequest(
 	string Name,
@@ -38,7 +39,8 @@ public record UpdateTournamentRequest(
 	int? ConsolationMatchesTargetRank,
 	bool Visible,
 	string? DiscordRoleName,
-	string? DiscordChannelName);
+	string? DiscordChannelName,
+	bool IsRanked = true);
 
 public record TournamentDto(
 	Guid Id,
@@ -68,7 +70,8 @@ public record TournamentDto(
 	int? OverrideEloChange,
 	int? ConsolationMatchesTargetRank,
 	string? DiscordRoleName,
-	string? DiscordChannelName);
+	string? DiscordChannelName,
+	bool IsRanked);
 
 public record TournamentPageDto(List<TournamentDto> Items, int Page, int PageSize, int TotalCount);
 

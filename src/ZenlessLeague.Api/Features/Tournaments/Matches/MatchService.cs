@@ -366,10 +366,12 @@ public class MatchService(
 
 			// Tagged so history shows "tech loss" instead of whatever result was typed before it.
 			var kind = techLoss ? TournamentMatchKind.TechLoss : TournamentMatchKind.None;
+			// Unranked: a fixed change of 0 still records the result and wins/losses, but moves no points.
+			var eloChange = tournament.IsRanked ? tournament.OverrideEloChange ?? -1 : 0;
 			if (match.P1TeamId is Guid t1 && match.P2TeamId is Guid t2)
 			{
 				var (entry1, entry2) = await historyService.RegisterTeamMatchResultAsync(
-					t1, t2, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
+					t1, t2, p1Win, eloChange, tournament.Id, match.Id, kind,
 					resultP1, resultP2, techLoss, ct);
 
 				match.WinnerPlayerId = null;
@@ -380,7 +382,7 @@ public class MatchService(
 			else
 			{
 				var entry = await historyService.RegisterMatchResultAsync(
-					match.P1PlayerId!.Value, match.P2PlayerId!.Value, p1Win, tournament.OverrideEloChange ?? -1, tournament.Id, match.Id, kind,
+					match.P1PlayerId!.Value, match.P2PlayerId!.Value, p1Win, eloChange, tournament.Id, match.Id, kind,
 					resultP1, resultP2, techLoss, ct);
 
 				match.WinnerPlayerId = p1Win ? match.P1PlayerId : match.P2PlayerId;

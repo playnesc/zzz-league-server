@@ -19,8 +19,12 @@ public record HistoryEntryDto(
 	int P1Change,
 	string? P2PlayerId,
 	int? P2Change,
+	// Null for adjustments and for entries from before it was stored; unranked results need it since
+	// both changes are 0.
+	bool? P1Won,
 	Guid? TournamentId,
 	string? TournamentName,
+	bool? TournamentIsRanked,
 	Guid? TournamentMatchId,
 	TournamentMatchKind Kind,
 	string? ResultP1,
