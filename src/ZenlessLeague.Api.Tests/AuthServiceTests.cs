@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ZenlessLeague.Api.Features.Auth;
 using ZenlessLeague.Api.Features.Discord;
@@ -25,7 +26,7 @@ public class AuthServiceTests
 		var roleAssignment = new DiscordRoleAssignmentService(new PlayerRepository(context), discord, options);
 		var service = new AuthService(
 			new PlayerRepository(context),
-			oauth, discord, roleAssignment, options, new FakeFirebaseCustomTokenSigner());
+			oauth, discord, roleAssignment, options, new FakeFirebaseCustomTokenSigner(), NullLogger<AuthService>.Instance);
 
 		return (service, oauth, discord);
 	}
@@ -74,6 +75,46 @@ public class AuthServiceTests
 
 		var created = await context.Players.SingleAsync(p => p.DiscordId == "discord-1");
 		Assert.Equal("NewGuy2", created.Name);
+	}
+
+	[Fact]
+	public async Task LoginWithDiscordAsync_NewPlayer_AssignsNewbieRole()
+	{
+		await using var context = CreateContext();
+		var (service, oauth, discord) = CreateService(context);
+		oauth.NextUser = new DiscordOAuthUser("discord-1", "NewGuy");
+
+		await service.LoginWithDiscordAsync("code", "redirect");
+
+		Assert.Contains(("discord-1", "newbie"), discord.AddedMemberRoles);
+	}
+
+	[Fact]
+	public async Task LoginWithDiscordAsync_ExistingPlayer_ResyncsTierRole()
+	{
+		await using var context = CreateContext();
+		TestPlayers.Create(context, "p1", highConfirmed: true).DiscordId = "discord-1";
+		await context.SaveChangesAsync();
+		var (service, oauth, discord) = CreateService(context);
+		oauth.NextUser = new DiscordOAuthUser("discord-1", "SomeName");
+
+		await service.LoginWithDiscordAsync("code", "redirect");
+
+		Assert.Contains(("discord-1", "high"), discord.AddedMemberRoles);
+	}
+
+	[Fact]
+	public async Task LoginWithDiscordAsync_RoleSyncFails_StillReturnsToken()
+	{
+		await using var context = CreateContext();
+		var (service, oauth, discord) = CreateService(context);
+		oauth.NextUser = new DiscordOAuthUser("discord-1", "NewGuy");
+		discord.UnknownMemberDiscordIds.Add("discord-1");
+
+		var token = await service.LoginWithDiscordAsync("code", "redirect");
+
+		var created = await context.Players.SingleAsync();
+		Assert.Equal($"token-for:{created.Uid}", token);
 	}
 
 	[Fact]

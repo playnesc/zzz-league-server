@@ -22,7 +22,8 @@ public class AuthService(
 	IDiscordClient discordClient,
 	IDiscordRoleAssignmentService discordRoleAssignmentService,
 	IOptions<DiscordOptions> discordOptions,
-	IFirebaseCustomTokenSigner tokenSigner) : IAuthService
+	IFirebaseCustomTokenSigner tokenSigner,
+	ILogger<AuthService> logger) : IAuthService
 {
 	public async Task<string> LoginWithDiscordAsync(string code, string redirectUri, CancellationToken ct = default)
 	{
@@ -39,6 +40,18 @@ public class AuthService(
 				DiscordUsername = discordUser.Username,
 				CreatedAt = DateTimeOffset.UtcNow,
 			}, ct);
+		}
+
+		// On every login, not just sign-up: it also repairs players who signed up before this sync
+		// existed, or who weren't in the guild yet when they first signed in.
+		try
+		{
+			await discordRoleAssignmentService.AssignRoleForPlayerAsync(player.Uid, ct);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			// Best-effort — a Discord outage shouldn't block signing in.
+			logger.LogWarning(ex, "Player {Uid} signed in with Discord, but syncing their Discord tier role failed", player.Uid);
 		}
 
 		return tokenSigner.CreateCustomToken(player.Uid);
